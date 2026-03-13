@@ -1,13 +1,43 @@
 {
   "name": "open-tongues",
-  "version": "1.0.0",
+  "version": "0.1.0",
   "description": "Zero-config website translation server. One script tag, any language.",
   "type": "module",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/80x24/open-tongues"
+  },
+  "keywords": ["translation", "i18n", "l10n", "website", "claude", "ai", "hono"],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    },
+    "./server": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    },
+    "./client": "./dist/t.js"
+  },
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "LICENSE",
+    "README.md"
+  ],
   "scripts": {
     "dev": "bun run --watch src/server/index.ts",
     "start": "bun run src/server/index.ts",
-    "test": "bun test test/*.test.ts"
+    "build": "bun run build:server && bun run build:client",
+    "build:server": "tsup",
+    "build:client": "bun build src/client/t.ts --outdir dist --minify",
+    "test": "bun test test/*.test.ts",
+    "prepublishOnly": "bun run build && bun run test"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.39.0",
@@ -17,6 +47,15 @@
   "devDependencies": {
     "@types/bun": "latest",
     "linkedom": "^0.18.12",
+    "tsup": "^8.4.0",
     "typescript": "^5.7.0"
+  },
+  "peerDependencies": {
+    "hono": ">=4.0.0"
+  },
+  "peerDependenciesMeta": {
+    "hono": {
+      "optional": false
+    }
   }
 }
