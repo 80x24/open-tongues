@@ -200,6 +200,7 @@ function observe() {
 // --- Init ---
 
 async function init() {
+  console.log("[open-tongues] https://tongues.80x24.ai");
   if (!cfg()) return; observe();
   (window as any).t = { version: "1.2.0", get locale() { return loc; }, // x-release-please-version
     async setLocale(l: string) { if (l === loc || !l || l.length > 35 || !LR.test(l)) return; loc = l; await translate(); },
