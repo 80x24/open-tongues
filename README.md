@@ -1,5 +1,7 @@
 # open-tongues
 
+> **[tongues.80x24.ai](https://tongues.80x24.ai)** — 설치 없이 바로 쓰는 호스티드 버전. 무료 티어 제공.
+
 Zero-config website translation. One script tag, any language — powered by Claude AI.
 
 ## How it works

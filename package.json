@@ -1,12 +1,16 @@
 {
   "name": "open-tongues",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Zero-config website translation server. One script tag, any language.",
   "type": "module",
   "license": "MIT",
   "repository": {
     "type": "git",
     "url": "https://github.com/80x24/open-tongues"
+  },
+  "homepage": "https://tongues.80x24.ai",
+  "bugs": {
+    "url": "https://github.com/80x24/open-tongues/issues"
   },
   "keywords": ["translation", "i18n", "l10n", "website", "claude", "ai", "hono"],
   "exports": {
