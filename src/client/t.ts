@@ -17,7 +17,7 @@ type PM = [string, string]; // [open, close]
 const LR = /^[a-zA-Z]{2,8}(-[a-zA-Z0-9]{1,8})*$/;
 let api = "", host = "", loc = "", iloc = "", busy = false, done = false, manual = false, pprompt = "";
 let phs = new WeakMap<Element, Map<number, PM>>();
-let ob: MutationObserver | null = null, tm: any = null;
+let ob: MutationObserver | null = null, tm: any = null, queued = false;
 
 function cfg() {
   const s = (document.currentScript || document.querySelector("script[src*='t.js']")) as HTMLScriptElement | null;
@@ -176,7 +176,9 @@ async function translate(inc = false, root?: Element) {
     for (let i = 0; i < miss.length; i += 17) chs.push(miss.slice(i, i + 17));
     for (let i = 0; i < chs.length; i += 10) await Promise.all(chs.slice(i, i + 10).map(go));
   }
-  if (!root) done = true; busy = false; rs();
+  if (!root) done = true; busy = false;
+  if (queued) { queued = false; setTimeout(() => translate(true), 100); }
+  rs();
 }
 
 // --- Observer ---
@@ -191,7 +193,7 @@ function observe() {
       if (!el || (el as HTMLElement).isContentEditable) continue;
       if (el.closest(NT)) continue;
       if (!el.hasAttribute("data-t")) { if (tm) clearTimeout(tm);
-        tm = setTimeout(() => { if (!busy) translate(done); }, 300); return; } }
+        tm = setTimeout(() => { if (!busy) translate(done); else queued = true; }, 300); return; } }
   }); rs();
 }
 
