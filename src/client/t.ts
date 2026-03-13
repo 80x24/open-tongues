@@ -17,7 +17,7 @@ type PM = [string, string]; // [open, close]
 const LR = /^[a-zA-Z]{2,8}(-[a-zA-Z0-9]{1,8})*$/;
 let api = "", host = "", loc = "", iloc = "", busy = false, done = false, manual = false, pprompt = "";
 let phs = new WeakMap<Element, Map<number, PM>>();
-let ob: MutationObserver | null = null, tm: any = null;
+let ob: MutationObserver | null = null, tm: any = null, queued = false;
 
 function cfg() {
   const s = (document.currentScript || document.querySelector("script[src*='t.js']")) as HTMLScriptElement | null;
@@ -176,40 +176,24 @@ async function translate(inc = false, root?: Element) {
     for (let i = 0; i < miss.length; i += 17) chs.push(miss.slice(i, i + 17));
     for (let i = 0; i < chs.length; i += 10) await Promise.all(chs.slice(i, i + 10).map(go));
   }
-  if (!root) done = true; busy = false; rs();
+  if (!root) done = true; busy = false;
+  if (queued) { queued = false; setTimeout(() => translate(true), 100); }
+  rs();
 }
 
 // --- Observer ---
 
 function ps() { ob?.disconnect(); }
-function rs() { ob?.observe(document.body, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: [...AT, "data-t"] }); }
-
-function changed(el: Element): boolean {
-  if (!el.hasAttribute("data-t")) return true;
-  const orig = el.getAttribute("data-t"), tt = el.getAttribute("data-tt");
-  const cur = el.getAttribute("data-th") ? el.innerHTML : el.textContent?.trim();
-  return cur !== orig && cur !== tt;
-}
-
-function invalidate(el: Element) {
-  el.removeAttribute("data-t"); el.removeAttribute("data-th"); el.removeAttribute("data-tt");
-}
+function rs() { ob?.observe(document.body, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: AT }); }
 
 function observe() {
   ob = new MutationObserver(muts => {
-    if (manual) return; let need = false;
+    if (manual) return;
     for (const m of muts) { const el = m.target instanceof Element ? m.target : m.target.parentElement;
       if (!el || (el as HTMLElement).isContentEditable) continue;
       if (el.closest(NT)) continue;
-      // Skip mutations caused by our own translation (data-tf marker inside <font>)
-      if (el.querySelector?.("[data-tf]") && !changed(el)) continue;
-      if (el.hasAttribute("data-t") && changed(el)) { invalidate(el); need = true; continue; }
-      // Walk up: parent with data-t whose content changed externally
-      const p = el.closest("[data-t]");
-      if (p && changed(p)) { invalidate(p); need = true; continue; }
-      if (!el.hasAttribute("data-t")) need = true;
-    }
-    if (need) { if (tm) clearTimeout(tm); tm = setTimeout(() => { if (!busy) translate(done); }, 300); }
+      if (!el.hasAttribute("data-t")) { if (tm) clearTimeout(tm);
+        tm = setTimeout(() => { if (!busy) translate(done); else queued = true; }, 300); return; } }
   }); rs();
 }
 
