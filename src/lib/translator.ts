@@ -2,7 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { createDB } from "./db";
 import type { DB } from "./db";
 
-// --- Config ---
+// --- Types ---
 
 export interface TranslatorConfig {
   apiKey: string;
