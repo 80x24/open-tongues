@@ -152,10 +152,13 @@ ${prompt}`,
   });
 
   const responseText = response.content[0].type === "text" ? response.content[0].text : "";
-  const lines = responseText.split("\n").filter((l) => l.trim());
 
-  for (const line of lines) {
-    const match = line.match(/^\[(\d+)\]\s*(.+)$/);
+  // Split by [N] markers to handle multiline responses (#92).
+  // LLM may wrap long translations across multiple lines, so line-by-line
+  // parsing with (.+)$ would only capture the first line and drop the rest.
+  const blocks = responseText.split(/(?=^\[\d+\])/m);
+  for (const block of blocks) {
+    const match = block.match(/^\[(\d+)\]\s*([\s\S]+)$/);
     if (match) {
       const idx = parseInt(match[1]);
       const fixed = fixPlaceholderTags(match[2].trim());
