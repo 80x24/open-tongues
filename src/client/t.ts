@@ -189,12 +189,14 @@ function rs() { ob?.observe(document.body, { childList: true, subtree: true, cha
 
 function observe() {
   ob = new MutationObserver(muts => {
-    if (manual) return;
+    if (manual) return; let dirty = false;
     for (const m of muts) { const el = m.target instanceof Element ? m.target : m.target.parentElement;
       if (!el || (el as HTMLElement).isContentEditable) continue;
       if (el.closest(NT)) continue;
-      if (!el.hasAttribute("data-t")) { if (tm) clearTimeout(tm);
-        tm = setTimeout(() => { if (!busy) translate(done); else queued = true; }, 300); return; } }
+      if (el.hasAttribute("data-t")) { el.removeAttribute("data-t"); el.removeAttribute("data-th"); el.removeAttribute("data-tt"); }
+      dirty = true; }
+    if (dirty) { if (tm) clearTimeout(tm);
+      tm = setTimeout(() => { if (!busy) translate(done); else queued = true; }, 300); }
   }); rs();
 }
 

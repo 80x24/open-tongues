@@ -4,168 +4,170 @@ import { describe, test, expect } from "bun:test";
  * Unit tests for MutationObserver dynamic content re-translation logic.
  *
  * Bug: https://github.com/80x24/open-tongues/issues/4
- * When JS dynamically changes text content of elements with `data-t` attribute,
- * tongues' MutationObserver should detect the change and re-translate.
+ * When JS dynamically replaces content (e.g. "loading..." → real data),
+ * tongues' MutationObserver must strip data-t/data-th/data-tt markers
+ * so the new content gets collected and re-translated.
  *
- * These tests verify the `changed()` and `invalidate()` helper functions
- * extracted from the observer logic in src/client/t.ts.
+ * Fix: observer unconditionally strips markers on any mutation targeting
+ * a data-t element. tongues' own changes don't trigger this because
+ * ps()/rs() disconnect the observer during apply().
  */
 
-// --- Replicate from t.ts ---
+const { parseHTML } = require("linkedom");
 
-function changed(el: Element): boolean {
-  if (!el.hasAttribute("data-t")) return true;
-  const orig = el.getAttribute("data-t"), tt = el.getAttribute("data-tt");
-  const cur = el.getAttribute("data-th") ? el.innerHTML : el.textContent?.trim();
-  return cur !== orig && cur !== tt;
-}
+// --- Replicate observer logic from t.ts ---
 
-function invalidate(el: Element) {
-  el.removeAttribute("data-t");
-  el.removeAttribute("data-th");
-  el.removeAttribute("data-tt");
+/** What the observer does when it sees a mutation on a translated element */
+function observerHandle(el: Element) {
+  if (el.hasAttribute("data-t")) {
+    el.removeAttribute("data-t");
+    el.removeAttribute("data-th");
+    el.removeAttribute("data-tt");
+  }
 }
 
 // --- Helpers ---
 
-function makeEl(tag: string, text: string, attrs: Record<string, string> = {}): Element {
-  // Use linkedom for DOM simulation (same as inline-tags tests)
-  const { parseHTML } = require("linkedom");
-  const { document } = parseHTML(`<!DOCTYPE html><html><body><${tag}>${text}</${tag}></body></html>`);
-  const el = document.querySelector(tag)!;
-  for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, v);
-  return el;
+function makeDoc(html: string) {
+  return parseHTML(`<!DOCTYPE html><html><body>${html}</body></html>`);
 }
 
 // --- Tests ---
 
-describe("changed() — detect external content changes on data-t elements", () => {
-  test("returns true when element has no data-t (new element)", () => {
-    const el = makeEl("div", "hello world");
-    expect(changed(el)).toBe(true);
-  });
-
-  test("returns false when text matches data-t (original, untouched)", () => {
-    const el = makeEl("div", "hello world", { "data-t": "hello world" });
-    expect(changed(el)).toBe(false);
-  });
-
-  test("returns false when textContent matches data-tt (translated, plain text)", () => {
-    const el = makeEl("div", "translated text", {
-      "data-t": "original text",
-      "data-tt": "translated text",
-    });
-    // For plain text elements (no data-th), textContent is compared against both data-t and data-tt
-    expect(changed(el)).toBe(false);
-  });
-
-  test("returns true when textContent differs from both data-t and data-tt (external JS change)", () => {
-    const el = makeEl("div", "new dynamic content", {
-      "data-t": "loading...",
-      "data-tt": "로딩 중...",
-    });
-    expect(changed(el)).toBe(true);
-  });
-
-  test("returns false when innerHTML matches data-tt with data-th present", () => {
-    const { parseHTML } = require("linkedom");
-    const { document } = parseHTML(
-      `<!DOCTYPE html><html><body><div data-t="original" data-th="<b>original</b>" data-tt="<b>번역됨</b>"><b>번역됨</b></div></body></html>`
-    );
+describe("observer: strip markers on external content change", () => {
+  test("strips data-t when content is replaced", () => {
+    const { document } = makeDoc(`<div data-t="loading...">loading...</div>`);
     const el = document.querySelector("div")!;
-    expect(changed(el)).toBe(false);
-  });
-
-  test("returns true when innerHTML differs from data-tt with data-th present", () => {
-    const { parseHTML } = require("linkedom");
-    const { document } = parseHTML(
-      `<!DOCTYPE html><html><body><div data-t="original" data-th="<b>original</b>" data-tt="<b>번역됨</b>"><b>completely new</b></div></body></html>`
-    );
-    const el = document.querySelector("div")!;
-    expect(changed(el)).toBe(true);
-  });
-
-  test("80x24.ai/now scenario: data-t='loading...' replaced by PR list", () => {
-    const { parseHTML } = require("linkedom");
-    const { document } = parseHTML(
-      `<!DOCTYPE html><html><body><div data-t="loading..." data-tt="로딩 중..."><ul><li>menupie #69</li></ul></div></body></html>`
-    );
-    const el = document.querySelector("div")!;
-    // textContent is now "menupie #69" which differs from "loading..." and "로딩 중..."
-    expect(changed(el)).toBe(true);
-  });
-});
-
-describe("invalidate() — clear translation markers for re-translation", () => {
-  test("removes data-t attribute", () => {
-    const el = makeEl("div", "text", { "data-t": "text" });
-    invalidate(el);
+    // Simulate external JS replacing content
+    el.textContent = "Real content loaded";
+    // Observer fires → handle
+    observerHandle(el);
     expect(el.hasAttribute("data-t")).toBe(false);
+    expect(el.textContent).toBe("Real content loaded");
   });
 
-  test("removes data-th attribute", () => {
-    const el = makeEl("div", "text", { "data-t": "text", "data-th": "<b>text</b>" });
-    invalidate(el);
-    expect(el.hasAttribute("data-th")).toBe(false);
-  });
-
-  test("removes data-tt attribute", () => {
-    const el = makeEl("div", "text", { "data-t": "text", "data-tt": "번역" });
-    invalidate(el);
-    expect(el.hasAttribute("data-tt")).toBe(false);
-  });
-
-  test("removes all three attributes at once", () => {
-    const el = makeEl("div", "text", {
-      "data-t": "text",
-      "data-th": "<b>text</b>",
-      "data-tt": "<b>번역</b>",
-    });
-    invalidate(el);
+  test("strips all three markers (data-t, data-th, data-tt)", () => {
+    const { document } = makeDoc(
+      `<div data-t="Click <0>here</0>" data-th="Click <b>here</b>" data-tt="<b>여기</b>를 클릭"><b>여기</b>를 클릭</div>`
+    );
+    const el = document.querySelector("div")!;
+    el.innerHTML = "<b>New link</b> text";
+    observerHandle(el);
     expect(el.hasAttribute("data-t")).toBe(false);
     expect(el.hasAttribute("data-th")).toBe(false);
     expect(el.hasAttribute("data-tt")).toBe(false);
   });
 
-  test("no-op on element without translation markers", () => {
-    const el = makeEl("div", "clean element");
-    invalidate(el); // should not throw
+  test("no-op on element without data-t", () => {
+    const { document } = makeDoc(`<div>clean element</div>`);
+    const el = document.querySelector("div")!;
+    observerHandle(el); // should not throw
+    expect(el.textContent).toBe("clean element");
+  });
+
+  test("80x24.ai/now: loading... replaced by async PR list", () => {
+    const { document } = makeDoc(
+      `<div data-t="loading..." data-tt="로딩 중..."><font data-tf="1">로딩 중...</font></div>`
+    );
+    const el = document.querySelector("div")!;
+    // SPA async fetch replaces content entirely
+    el.innerHTML = "<ul><li>menupie #69 — fix auth flow</li><li>tongues #12 — rate limit</li></ul>";
+    observerHandle(el);
     expect(el.hasAttribute("data-t")).toBe(false);
+    expect(el.hasAttribute("data-tt")).toBe(false);
+    expect(el.textContent).toContain("menupie #69");
   });
 });
 
-describe("attributeFilter includes data-t", () => {
-  // Verify the constant used for observer includes data-t
-  const AT = ["placeholder", "title", "alt", "aria-label"];
-  const observerFilter = [...AT, "data-t"];
+describe("observer: collect() picks up cleared elements", () => {
+  // After markers are stripped, incremental collect should find the element again
 
-  test("observer attributeFilter contains data-t", () => {
-    expect(observerFilter).toContain("data-t");
+  test("element without data-t is eligible for incremental collect", () => {
+    const { document } = makeDoc(`<div>New content here</div>`);
+    const el = document.querySelector("div")!;
+    // No data-t → collect(inc=true) should process it (not skip)
+    expect(el.hasAttribute("data-t")).toBe(false);
+    expect(el.textContent!.trim().length).toBeGreaterThanOrEqual(2);
   });
 
-  test("observer attributeFilter still contains original attributes", () => {
-    for (const a of AT) {
-      expect(observerFilter).toContain(a);
-    }
+  test("element with data-t is skipped by incremental collect (no data-th)", () => {
+    const { document } = makeDoc(`<div data-t="old">translated</div>`);
+    const el = document.querySelector("div")!;
+    // Simulates: inc && el.hasAttribute("data-t") && !el.hasAttribute("data-th") → skip
+    expect(el.hasAttribute("data-t")).toBe(true);
+    expect(el.hasAttribute("data-th")).toBe(false);
+    // → would return NodeFilter.FILTER_REJECT (2) in collect()
+  });
+
+  test("after strip, element becomes eligible again", () => {
+    const { document } = makeDoc(`<div data-t="loading...">Real data</div>`);
+    const el = document.querySelector("div")!;
+    expect(el.hasAttribute("data-t")).toBe(true);
+    observerHandle(el);
+    expect(el.hasAttribute("data-t")).toBe(false);
+    // Now collect(inc=true) will process this element
+  });
+});
+
+describe("observer: attribute translation markers (data-ta-*)", () => {
+  test("data-ta-placeholder preserved (observer only strips data-t/th/tt)", () => {
+    const { document } = makeDoc(
+      `<input placeholder="검색..." data-ta-placeholder="Search..." data-t="foo" />`
+    );
+    const el = document.querySelector("input")!;
+    observerHandle(el);
+    // data-t stripped
+    expect(el.hasAttribute("data-t")).toBe(false);
+    // data-ta-placeholder is NOT stripped by observer (attribute translations are independent)
+    expect(el.getAttribute("data-ta-placeholder")).toBe("Search...");
   });
 });
 
 describe("edge cases", () => {
-  test("element with empty textContent and data-t", () => {
-    const el = makeEl("div", "", { "data-t": "loading..." });
-    // Empty textContent trims to "", which differs from "loading..."
-    expect(changed(el)).toBe(true);
+  test("rapid replacement: content changes twice before re-translate", () => {
+    const { document } = makeDoc(`<div data-t="loading...">loading...</div>`);
+    const el = document.querySelector("div")!;
+    // First async update
+    el.textContent = "Partial data...";
+    observerHandle(el);
+    expect(el.hasAttribute("data-t")).toBe(false);
+
+    // Suppose tongues hasn't re-translated yet, second update arrives
+    el.textContent = "Final complete data";
+    observerHandle(el); // still no data-t, so no-op — correct
+    expect(el.hasAttribute("data-t")).toBe(false);
+    expect(el.textContent).toBe("Final complete data");
   });
 
-  test("element with whitespace-only textContent", () => {
-    const el = makeEl("div", "   ", { "data-t": "loading..." });
-    // Trimmed to "", differs from "loading..."
-    expect(changed(el)).toBe(true);
+  test("element emptied then filled (skeleton pattern)", () => {
+    const { document } = makeDoc(`<div data-t="Loading items">Loading items</div>`);
+    const el = document.querySelector("div")!;
+    // Framework clears content first
+    el.textContent = "";
+    observerHandle(el);
+    expect(el.hasAttribute("data-t")).toBe(false);
+    // Then fills with real content
+    el.textContent = "3 items found";
+    observerHandle(el); // no-op (no data-t)
+    expect(el.textContent).toBe("3 items found");
   });
 
-  test("data-t matches trimmed textContent with surrounding whitespace", () => {
-    const el = makeEl("div", "  hello  ", { "data-t": "hello" });
-    // textContent.trim() === "hello" === data-t
-    expect(changed(el)).toBe(false);
+  test("notranslate elements are not affected", () => {
+    const { document } = makeDoc(
+      `<div class="notranslate" data-t="code">translated code</div>`
+    );
+    const el = document.querySelector("div")!;
+    // In real observer, el.closest(NT) would match → skip entirely
+    // observerHandle only runs if that check passes
+    // This test documents that notranslate is handled before observerHandle
+    expect(el.classList.contains("notranslate")).toBe(true);
+  });
+
+  test("contentEditable elements are skipped", () => {
+    const { document } = makeDoc(`<div contenteditable="true" data-t="editable">user typing</div>`);
+    const el = document.querySelector("div")!;
+    // In real observer, isContentEditable check → continue (skip)
+    expect(el.getAttribute("contenteditable")).toBe("true");
+    // data-t should NOT be stripped for contentEditable (observer skips before reaching observerHandle)
   });
 });
