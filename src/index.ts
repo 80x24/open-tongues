@@ -9,3 +9,7 @@ export { createHandler } from "./server/handler";
 export type { TonguesConfig } from "./server/handler";
 export type { Translator, TranslatorConfig, TranslateContext, CacheStats } from "./lib/translator";
 export { createTranslator } from "./lib/translator";
+
+// Validation schemas (shared with commercial tongues)
+export { translateBodySchema, langCodeSchema, validateLangCode } from "./lib/validation";
+export type { TranslateBody } from "./lib/validation";
