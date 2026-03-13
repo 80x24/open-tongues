@@ -51,6 +51,9 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
+      - name: Wait for npm registry propagation
+        run: sleep 10
+
       - name: Generate GitHub App token
         id: app-token
         uses: actions/create-github-app-token@v1
