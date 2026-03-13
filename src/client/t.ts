@@ -182,16 +182,34 @@ async function translate(inc = false, root?: Element) {
 // --- Observer ---
 
 function ps() { ob?.disconnect(); }
-function rs() { ob?.observe(document.body, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: AT }); }
+function rs() { ob?.observe(document.body, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: [...AT, "data-t"] }); }
+
+function changed(el: Element): boolean {
+  if (!el.hasAttribute("data-t")) return true;
+  const orig = el.getAttribute("data-t"), tt = el.getAttribute("data-tt");
+  const cur = el.getAttribute("data-th") ? el.innerHTML : el.textContent?.trim();
+  return cur !== orig && cur !== tt;
+}
+
+function invalidate(el: Element) {
+  el.removeAttribute("data-t"); el.removeAttribute("data-th"); el.removeAttribute("data-tt");
+}
 
 function observe() {
   ob = new MutationObserver(muts => {
-    if (manual) return;
+    if (manual) return; let need = false;
     for (const m of muts) { const el = m.target instanceof Element ? m.target : m.target.parentElement;
       if (!el || (el as HTMLElement).isContentEditable) continue;
       if (el.closest(NT)) continue;
-      if (!el.hasAttribute("data-t")) { if (tm) clearTimeout(tm);
-        tm = setTimeout(() => { if (!busy) translate(done); }, 300); return; } }
+      // Skip mutations caused by our own translation (data-tf marker inside <font>)
+      if (el.querySelector?.("[data-tf]") && !changed(el)) continue;
+      if (el.hasAttribute("data-t") && changed(el)) { invalidate(el); need = true; continue; }
+      // Walk up: parent with data-t whose content changed externally
+      const p = el.closest("[data-t]");
+      if (p && changed(p)) { invalidate(p); need = true; continue; }
+      if (!el.hasAttribute("data-t")) need = true;
+    }
+    if (need) { if (tm) clearTimeout(tm); tm = setTimeout(() => { if (!busy) translate(done); }, 300); }
   }); rs();
 }
 
