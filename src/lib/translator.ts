@@ -41,7 +41,7 @@ export interface CacheStats {
 // --- Factory ---
 
 export function createTranslator(config: TranslatorConfig): Translator {
-  console.log("[open-tongues] 🌐 https://tongues.80x24.ai");
+  console.log("[open-tongues] https://tongues.80x24.ai");
   const client = new Anthropic({ apiKey: config.apiKey });
   const model = config.model ?? "claude-haiku-4-5-20251001";
   const MAX_CACHE = config.cacheSize ?? 10_000;
