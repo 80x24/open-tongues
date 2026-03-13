@@ -2,6 +2,7 @@
  * tongues — invisible automatic translation
  * <script src="https://tongues.80x24.ai/t.js" defer></script>
  */
+declare const __VERSION__: string;
 if (!(window as any).__tongues) {
 (window as any).__tongues = true;
 
@@ -202,7 +203,7 @@ function observe() {
 async function init() {
   console.log("[open-tongues] https://tongues.80x24.ai");
   if (!cfg()) return; observe();
-  (window as any).t = { version: "1.2.0", get locale() { return loc; }, // x-release-please-version
+  (window as any).t = { version: __VERSION__, get locale() { return loc; },
     async setLocale(l: string) { if (l === loc || !l || l.length > 35 || !LR.test(l)) return; loc = l; await translate(); },
     restore() { if (tm) { clearTimeout(tm); tm = null; } undo(); done = false; loc = iloc; },
     async translateEl(target: string | Element | Element[]) {

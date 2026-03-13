@@ -47,7 +47,7 @@
     "start": "bun run src/server/index.ts",
     "build": "bun run build:server && bun run build:client",
     "build:server": "tsup",
-    "build:client": "bun build src/client/t.ts --outdir dist --minify",
+    "build:client": "bun run scripts/build-client.ts",
     "test": "bun test test/*.test.ts",
     "prepublishOnly": "bun run build && bun run test"
   },
