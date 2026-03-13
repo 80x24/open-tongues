@@ -16,10 +16,12 @@ const RX = "x-text,x-html,v-text,v-html,:textContent,:innerHTML".split(",");
 
 type PM = [string, string]; // [open, close]
 
+function esc(s: string): string { return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); }
+
 function toPh(el: Element) {
   const m = new Map<number, PM>(); let i = 0;
   function w(n: Node): string {
-    if (n.nodeType === 3) return n.nodeValue || "";
+    if (n.nodeType === 3) return esc(n.nodeValue || "");
     if (n.nodeType !== 1) return "";
     const e = n as Element, tg = e.tagName;
     if (VD.has(tg)) { m.set(i, [e.outerHTML, ""]); return `<${i++}/>`; }
@@ -285,5 +287,132 @@ describe("full roundtrip (toPh → translate → fromPh)", () => {
     el.innerHTML = originalHtml;
     expect(el.innerHTML).toBe(originalHtml);
     expect(el.textContent).toBe("Use data-tongues-ignore attribute");
+  });
+});
+
+// --- Issue #92: toPh escapes literal < and > from decoded entities ---
+
+describe("toPh entity escaping (#92)", () => {
+  test("&lt; and &gt; in text nodes become &lt; and &gt; in placeholder text", () => {
+    const el = createElement(
+      '<p><a href="#" id="next">&lt; newer</a> · <span id="current-date">2026-03-12 (1/18)</span> · <a href="#" id="prev">older &gt;</a></p>'
+    );
+    const { t } = toPh(el);
+    // < and > from decoded entities must be escaped so they don't collide with <0>...</0> tags
+    expect(t).toContain("&lt; newer");
+    expect(t).toContain("older &gt;");
+    expect(t).not.toMatch(/(?<!&[lg]t);\s*newer/); // no raw < before newer
+  });
+});
+
+// --- Issue #92 full scenario: p with multiple a/span children ---
+
+describe("issue #92 fromPh with escaped entities", () => {
+  test("restores all child elements from placeholder map with escaped < and >", () => {
+    const m = new Map<number, PM>([
+      [0, ['<a href="#" id="next" style="opacity: 0.3;">', "</a>"]],
+      [1, ['<span id="current-date">', "</span>"]],
+      [2, ['<a href="#" id="prev" style="opacity: 1;">', "</a>"]],
+      [3, ['<a href="#" id="today">', "</a>"]],
+      [4, ['<a href="#" id="random">', "</a>"]],
+    ]);
+    const translated = "<0>&lt; 新しい</0> · <1>2026-03-12 (1/18)</1> · <2>古い &gt;</2> · <3>今日</3> · <4>ランダム</4>";
+    const html = fromPh(translated, m);
+    // Must restore all child elements with attributes
+    expect(html).toContain('<a href="#" id="next"');
+    expect(html).toContain('<span id="current-date">');
+    expect(html).toContain('<a href="#" id="prev"');
+    expect(html).toContain('<a href="#" id="today">');
+    expect(html).toContain('<a href="#" id="random">');
+    // Must unescape &lt; and &gt; back to display correctly in innerHTML
+    expect(html).toContain("&lt; 新しい");
+    expect(html).toContain("古い &gt;");
+  });
+});
+
+describe("full roundtrip issue #92 scenario", () => {
+  test("p with multiple inline children: toPh → translate → fromPh preserves DOM structure", () => {
+    const el = createElement(
+      '<p><a href="#" id="next" style="opacity: 0.3;">&lt; newer</a> · <span id="current-date">2026-03-12 (1/18)</span> · <a href="#" id="prev" style="opacity: 1;">older &gt;</a> · <a href="#" id="today">today</a> · <a href="#" id="random">random</a></p>'
+    );
+    const { t, m } = toPh(el);
+    // Simulated translation (Japanese)
+    const translated = "<0>&lt; 新しい</0> · <1>2026-03-12 (1/18)</1> · <2>古い &gt;</2> · <3>今日</3> · <4>ランダム</4>";
+    const html = fromPh(translated, m);
+    // All 5 elements must be present with their attributes
+    expect(html).toContain('<a href="#" id="next"');
+    expect(html).toContain('<span id="current-date">');
+    expect(html).toContain('<a href="#" id="prev"');
+    expect(html).toContain('<a href="#" id="today">');
+    expect(html).toContain('<a href="#" id="random">');
+    // Content must be translated
+    expect(html).toContain("新しい");
+    expect(html).toContain("古い");
+    expect(html).toContain("今日");
+    expect(html).toContain("ランダム");
+  });
+});
+
+// --- Fix #3: phs Map key collision when same text appears in multiple elements ---
+
+describe("phs element-based keying (#92 fix 3)", () => {
+  test("two elements with identical text structure get independent placeholder maps", () => {
+    // Simulate two <p> elements with the same text but different attributes on children
+    const el1 = createElement('<p><a href="/page1" class="link1">Click here</a> for info</p>');
+    const el2 = createElement('<p><a href="/page2" class="link2">Click here</a> for info</p>');
+
+    const r1 = toPh(el1);
+    const r2 = toPh(el2);
+
+    // Both produce the same placeholder text
+    expect(r1.t).toBe(r2.t);
+    expect(r1.t).toBe("<0>Click here</0> for info");
+
+    // But the placeholder maps should contain different opening tags
+    expect(r1.m.get(0)![0]).toContain('href="/page1"');
+    expect(r1.m.get(0)![0]).toContain('class="link1"');
+    expect(r2.m.get(0)![0]).toContain('href="/page2"');
+    expect(r2.m.get(0)![0]).toContain('class="link2"');
+
+    // With a text-keyed Map, phs.set(t, r2.m) would overwrite r1.m
+    // With element-keyed WeakMap, each element keeps its own map
+    const phs = new WeakMap<Element, Map<number, PM>>();
+    phs.set(el1, r1.m);
+    phs.set(el2, r2.m);
+
+    // Both should be independently retrievable
+    const pm1 = phs.get(el1)!;
+    const pm2 = phs.get(el2)!;
+    expect(pm1.get(0)![0]).toContain('href="/page1"');
+    expect(pm2.get(0)![0]).toContain('href="/page2"');
+
+    // Translating each should produce different HTML
+    const translated = "<0>ここをクリック</0> 情報";
+    const html1 = fromPh(translated, pm1);
+    const html2 = fromPh(translated, pm2);
+    expect(html1).toContain('href="/page1"');
+    expect(html1).toContain('class="link1"');
+    expect(html2).toContain('href="/page2"');
+    expect(html2).toContain('class="link2"');
+  });
+
+  test("with old text-keyed Map, second element overwrites first (regression proof)", () => {
+    const el1 = createElement('<p><a href="/page1">Click here</a> for info</p>');
+    const el2 = createElement('<p><a href="/page2">Click here</a> for info</p>');
+
+    const r1 = toPh(el1);
+    const r2 = toPh(el2);
+
+    // Demonstrate the old bug: text-keyed Map causes overwrite
+    const oldPhs = new Map<string, Map<number, PM>>();
+    oldPhs.set(r1.t, r1.m);
+    oldPhs.set(r2.t, r2.m); // overwrites r1.m because r1.t === r2.t
+
+    // Only one entry in the Map — el1's data is lost
+    expect(oldPhs.size).toBe(1);
+    const pm = oldPhs.get(r1.t)!;
+    // pm is r2's map, not r1's
+    expect(pm.get(0)![0]).toContain('href="/page2"');
+    expect(pm.get(0)![0]).not.toContain('href="/page1"');
   });
 });
