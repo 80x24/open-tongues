@@ -1,6 +1,6 @@
 {
   "name": "open-tongues",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Zero-config website translation server. One script tag, any language.",
   "type": "module",
   "license": "MIT",
@@ -12,7 +12,15 @@
   "bugs": {
     "url": "https://github.com/80x24/open-tongues/issues"
   },
-  "keywords": ["translation", "i18n", "l10n", "website", "claude", "ai", "hono"],
+  "keywords": [
+    "translation",
+    "i18n",
+    "l10n",
+    "website",
+    "claude",
+    "ai",
+    "hono"
+  ],
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
