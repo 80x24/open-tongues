@@ -16,7 +16,7 @@ const $ = (s: string) => document.querySelectorAll(s);
 type PM = [string, string]; // [open, close]
 const LR = /^[a-zA-Z]{2,8}(-[a-zA-Z0-9]{1,8})*$/;
 let api = "", host = "", loc = "", iloc = "", busy = false, done = false, manual = false, pprompt = "";
-let phs = new Map<string, Map<number, PM>>();
+let phs = new WeakMap<Element, Map<number, PM>>();
 let ob: MutationObserver | null = null, tm: any = null;
 
 function cfg() {
@@ -33,10 +33,12 @@ function cfg() {
 
 // --- Placeholder: mixed-content (text + inline tags) ---
 
+function esc(s: string): string { return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); }
+
 function toPh(el: Element) {
   const m = new Map<number, PM>(); let i = 0;
   function w(n: Node): string {
-    if (n.nodeType === 3) return n.nodeValue || "";
+    if (n.nodeType === 3) return esc(n.nodeValue || "");
     if (n.nodeType !== 1) return "";
     const e = n as Element, tg = e.tagName;
     if (VD.has(tg)) { m.set(i, [e.outerHTML, ""]); return `<${i++}/>`; }
@@ -63,7 +65,7 @@ function fromPh(t: string, m: Map<number, PM>): string {
 
 function collect(inc: boolean, root?: Element) {
   const txt = new Map<string, Element[]>(), atr = new Map<string, { e: Element; a: string }[]>();
-  phs = new Map(); const hd = new WeakSet<Element>();
+  phs = new WeakMap(); const hd = new WeakSet<Element>();
   const tw = document.createTreeWalker(root || document.body, NodeFilter.SHOW_ELEMENT, { acceptNode(n) {
     const el = n as Element;
     const nt = el.closest(NT);
@@ -88,7 +90,7 @@ function collect(inc: boolean, root?: Element) {
   let n: Node | null;
   while ((n = tw.nextNode())) {
     const el = n as Element; let t: string;
-    if (hd.has(el)) { const r = toPh(el); t = r.t; if (r.h) phs.set(t, r.m); }
+    if (hd.has(el)) { const r = toPh(el); t = r.t; if (r.h) phs.set(el, r.m); }
     else t = el.textContent!.trim();
     if (t && t.length >= 2) { const a = txt.get(t) || []; a.push(el); txt.set(t, a); }
   }
@@ -122,7 +124,7 @@ function apply(tE: Map<string, Element[]>, aE: Map<string, { e: Element; a: stri
       continue;
     }
     const els = tE.get(o);
-    if (els) { const pm = phs.get(o); for (const el of els) {
+    if (els) { for (const el of els) { const pm = phs.get(el);
       if (!el.hasAttribute("data-t")) { el.setAttribute("data-t", o); if (pm?.size) el.setAttribute("data-th", el.innerHTML); }
       if (pm?.size) { const h = fromPh(t, pm); el.innerHTML = h; el.setAttribute("data-tt", h); }
       else { const f = document.createElement("font"); f.setAttribute("data-tf", "1"); f.textContent = t; el.replaceChildren(f); }
