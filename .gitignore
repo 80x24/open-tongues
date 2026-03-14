@@ -3,5 +3,3 @@ dist/
 .env
 *.log
 *.db
-tongues.db-shm
-tongues.db-wal
