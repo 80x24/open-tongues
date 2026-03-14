@@ -123,19 +123,14 @@ export function createTranslator(config: TranslatorConfig): Translator {
           role: "user",
           content: `Translate every numbered text below into ${targetLang}. The source texts may be in any language — detect each one individually and translate it to ${targetLang}. Keep the [N] numbering. Output only the translated lines, no explanations.
 
-IMPORTANT — Placeholder tags like <0>, </0>, <1>, </1>, <2>, </2> are NOT HTML. They are opaque tokens that MUST appear in your output exactly as written. Never rename, rewrite, or spell out the numbers (e.g. do NOT change <0> to <zero>).
-CRITICAL — If a source text contains NO placeholder tags, your translation MUST also contain NO placeholder tags. Never invent or add tags that do not exist in the input.
-  Example with tags:
-    Input:  [0] <0>Email address:</0> Provided during registration.
-    Output: [0] <0>メールアドレス：</0> 登録時に提供されます。
-  Example without tags:
-    Input:  [1] Read-only. Current translation locale (e.g. "en", "ja").
-    Output: [1] 읽기 전용입니다. 현재 번역 언어입니다 (예: "en", "ja").
+Some texts may contain HTML tags (e.g. <strong>, <a href="...">, <br>).
+Preserve all HTML tags and their attributes exactly as written.
+If a source text has NO HTML tags, your translation MUST also have NO HTML tags.
 
 ${prompt}`,
         },
       ],
-      system: `You are a website translator. Target: ${targetLang} (${to}).${context?.from ? ` Likely source: ${langName(context.from)}.` : ""} Rules: 1) Every text MUST be translated to ${targetLang} — never return the source text unchanged unless it is already valid ${targetLang}. 2) Texts may come from different source languages in one batch. 3) Only preserve brand names, product names, and technical terms (URLs, code, variable names) in their original form. 4) Preserve numbered placeholder tags (<0>...</0>, <1/>, etc.) exactly — but NEVER add placeholder tags to text that has none. 5) Keep translations concise and natural for web UI.${context?.pageTitle ? ` Page: "${context.pageTitle}${context?.pageDescription ? ` — ${context.pageDescription}` : ""}".` : ""}${context?.preprompt ? ` Note: ${context.preprompt}` : ""}`,
+      system: `You are a website translator. Target: ${targetLang} (${to}).${context?.from ? ` Likely source: ${langName(context.from)}.` : ""} Rules: 1) Every text MUST be translated to ${targetLang} — never return the source text unchanged unless it is already valid ${targetLang}. 2) Texts may come from different source languages in one batch. 3) Only preserve brand names, product names, and technical terms (URLs, code, variable names) in their original form. 4) Preserve all HTML tags and attributes exactly — but NEVER add HTML tags to text that has none. 5) Keep translations concise and natural for web UI.${context?.pageTitle ? ` Page: "${context.pageTitle}${context?.pageDescription ? ` — ${context.pageDescription}` : ""}".` : ""}${context?.preprompt ? ` Note: ${context.preprompt}` : ""}`,
     });
 
     const responseText = response.content[0].type === "text" ? response.content[0].text : "";
@@ -148,9 +143,9 @@ ${prompt}`,
       const match = block.match(/^\[(\d+)\]\s*([\s\S]+)$/);
       if (match) {
         const idx = parseInt(match[1]);
-        const fixed = fixPlaceholderTags(match[2].trim());
+        const translated = match[2].trim();
         if (idx < texts.length) {
-          result[texts[idx]] = stripPhantomTags(texts[idx], fixed);
+          result[texts[idx]] = stripPhantomHtml(texts[idx], translated);
         }
       }
     }
@@ -192,7 +187,7 @@ ${prompt}`,
       const sqliteVal = sqliteResults[i];
       if (sqliteVal) {
         sqliteHits++;
-        const clean = stripPhantomTags(text, sqliteVal);
+        const clean = stripPhantomHtml(text, sqliteVal);
         result[text] = clean;
         storeCache(domain, to, text, clean);
       } else {
@@ -272,30 +267,10 @@ function langName(code: string): string {
   return LANG_NAMES[code] || code;
 }
 
-const PH_TAG_RE = /<\/?(\d+)\s*\/?>/;
-
-function stripPhantomTags(original: string, translated: string): string {
-  if (PH_TAG_RE.test(original)) return translated;
-  return translated.replace(/<\/?(\d+)\s*\/?>/g, "");
-}
-
-const WORD_TO_DIGIT: Record<string, string> = {
-  zero: "0", one: "1", two: "2", three: "3", four: "4",
-  five: "5", six: "6", seven: "7", eight: "8", nine: "9",
-  ten: "10", eleven: "11", twelve: "12", thirteen: "13",
-  fourteen: "14", fifteen: "15",
-};
-const TAG_FIX_RE = new RegExp(
-  `<(/?)(${Object.keys(WORD_TO_DIGIT).join("|")})(/)?>`,
-  "gi"
-);
-
-function fixPlaceholderTags(text: string): string {
-  return text.replace(TAG_FIX_RE, (_, slash1, word, slash2) => {
-    const digit = WORD_TO_DIGIT[word.toLowerCase()];
-    if (!digit) return _;
-    return `<${slash1 || ""}${digit}${slash2 || ""}>`;
-  });
+/** If original has no `<`, strip any HTML tags the LLM hallucinated */
+function stripPhantomHtml(original: string, translated: string): string {
+  if (original.includes("<")) return translated;
+  return translated.replace(/<[^>]+>/g, "");
 }
 
 // --- Legacy exports for standalone server (backward compat) ---
