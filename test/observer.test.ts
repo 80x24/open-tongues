@@ -48,7 +48,7 @@ describe("observer: strip markers on external content change", () => {
 
   test("strips all three markers (data-t, data-th, data-tt)", () => {
     const { document } = makeDoc(
-      `<div data-t="Click <0>here</0>" data-th="Click <b>here</b>" data-tt="<b>여기</b>를 클릭"><b>여기</b>를 클릭</div>`
+      `<div data-t="Click <b>here</b>" data-th="Click <b>here</b>" data-tt="<b>여기</b>를 클릭"><b>여기</b>를 클릭</div>`
     );
     const el = document.querySelector("div")!;
     el.innerHTML = "<b>New link</b> text";

@@ -2,47 +2,14 @@ import { describe, test, expect } from "bun:test";
 import { parseHTML } from "linkedom";
 
 /**
- * Unit tests for tongues placeholder system.
- * Replicates the core functions from t.ts (which has no exports)
- * to verify mixed-content translation works correctly.
+ * Unit tests for tongues inline HTML approach (Approach C).
+ * Mixed-content elements send innerHTML directly to the LLM.
+ * No placeholder numbering — HTML tags are preserved as-is.
  */
-
-// --- Replicate constants and functions from t.ts ---
 
 const IL = new Set("STRONG,EM,B,I,U,S,CODE,A,SPAN,MARK,SUB,SUP,SMALL,ABBR,CITE,DFN,TIME,Q".split(","));
 const VD = new Set("BR,IMG,WBR".split(","));
-const SK = new Set("SCRIPT,STYLE,NOSCRIPT,SVG,TEMPLATE,CODE,PRE,KBD,SAMP,VAR,CANVAS,VIDEO,AUDIO,IFRAME,MATH".split(","));
 const RX = "x-text,x-html,v-text,v-html,:textContent,:innerHTML".split(",");
-
-type PM = [string, string]; // [open, close]
-
-function esc(s: string): string { return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); }
-
-function toPh(el: Element) {
-  const m = new Map<number, PM>(); let i = 0;
-  function w(n: Node): string {
-    if (n.nodeType === 3) return esc(n.nodeValue || "");
-    if (n.nodeType !== 1) return "";
-    const e = n as Element, tg = e.tagName;
-    if (VD.has(tg)) { m.set(i, [e.outerHTML, ""]); return `<${i++}/>`; }
-    if (IL.has(tg)) {
-      const j = i++, mt = e.outerHTML.match(/^<[^>]+>/);
-      m.set(j, [mt ? mt[0] : `<${tg.toLowerCase()}>`, `</${tg.toLowerCase()}>`]);
-      let s = ""; for (const c of e.childNodes) s += w(c); return `<${j}>${s}</${j}>`;
-    }
-    let s = ""; for (const c of e.childNodes) s += w(c); return s;
-  }
-  let t = ""; for (const c of el.childNodes) t += w(c);
-  return { t: t.trim(), m, h: m.size > 0 };
-}
-
-function fromPh(t: string, m: Map<number, PM>): string {
-  let r = t.replace(/<(\d+)\/>/g, (_, i) => m.get(+i)?.[0] || ""), ok = true;
-  while (ok) { ok = false; r = r.replace(/<(\d+)>(.*?)<\/\1>/gs, (_, i, c) => {
-    ok = true; const e = m.get(+i); return e ? e[0] + c + e[1] : c; }); }
-  r = r.replace(/<\/?(\d+)\s*\/?>/g, "");
-  return r;
-}
 
 function inlineOnly(el: Element): boolean {
   for (const c of el.children) {
@@ -52,150 +19,179 @@ function inlineOnly(el: Element): boolean {
   return true;
 }
 
-// --- Helper ---
-
 function createElement(html: string): Element {
   const { document } = parseHTML(`<!DOCTYPE html><html><body>${html}</body></html>`);
   return document.body.firstElementChild!;
 }
 
-// --- toPh: extract placeholders ---
+function makeDoc(html: string) {
+  return parseHTML(`<!DOCTYPE html><html><body>${html}</body></html>`);
+}
 
-describe("toPh (htmlToPlaceholder)", () => {
-  test("plain text — no inline tags", () => {
+// --- collect: innerHTML extraction for mixed-content ---
+
+describe("collect: innerHTML for mixed-content", () => {
+  test("plain text — uses textContent", () => {
     const el = createElement("<p>Hello world</p>");
-    const { t, m, h } = toPh(el);
-    expect(t).toBe("Hello world");
-    expect(h).toBe(false);
-    expect(m.size).toBe(0);
+    expect(el.children.length).toBe(0);
+    expect(el.textContent!.trim()).toBe("Hello world");
   });
 
-  test("single <strong> tag", () => {
+  test("single <strong> — uses innerHTML", () => {
     const el = createElement("<p>This is <strong>important</strong> text</p>");
-    const { t, m, h } = toPh(el);
-    expect(t).toBe("This is <0>important</0> text");
-    expect(h).toBe(true);
-    expect(m.get(0)![0]).toBe("<strong>");
-    expect(m.get(0)![1]).toBe("</strong>");
+    expect(el.children.length).toBeGreaterThan(0);
+    expect(inlineOnly(el)).toBe(true);
+    expect(el.innerHTML.trim()).toBe("This is <strong>important</strong> text");
   });
 
-  test("single <code> tag", () => {
-    const el = createElement("<p>Use <code>data-tongues-ignore</code> attribute</p>");
-    const { t, m } = toPh(el);
-    expect(t).toBe("Use <0>data-tongues-ignore</0> attribute");
-    expect(m.get(0)![0]).toBe("<code>");
-  });
-
-  test("<a> tag with href preserved", () => {
+  test("<a> with href — innerHTML preserves attributes", () => {
     const el = createElement('<p>Visit <a href="https://example.com">our site</a> now</p>');
-    const { t, m } = toPh(el);
-    expect(t).toBe("Visit <0>our site</0> now");
-    expect(m.get(0)![0]).toBe('<a href="https://example.com">');
-    expect(m.get(0)![1]).toBe("</a>");
+    expect(inlineOnly(el)).toBe(true);
+    const html = el.innerHTML.trim();
+    expect(html).toContain('<a href="https://example.com">');
+    expect(html).toContain("our site</a>");
   });
 
-  test("multiple sibling inline tags", () => {
+  test("multiple inline tags — all preserved in innerHTML", () => {
     const el = createElement("<p><strong>Bold</strong> and <code>code</code> here</p>");
-    const { t, m } = toPh(el);
-    expect(t).toBe("<0>Bold</0> and <1>code</1> here");
-    expect(m.get(0)![0]).toBe("<strong>");
-    expect(m.get(1)![0]).toBe("<code>");
+    expect(inlineOnly(el)).toBe(true);
+    const html = el.innerHTML.trim();
+    expect(html).toContain("<strong>Bold</strong>");
+    expect(html).toContain("<code>code</code>");
   });
 
   test("nested inline tags", () => {
     const el = createElement("<p><strong><code>nested</code></strong></p>");
-    const { t, m } = toPh(el);
-    expect(t).toBe("<0><1>nested</1></0>");
-    expect(m.get(0)![0]).toBe("<strong>");
-    expect(m.get(1)![0]).toBe("<code>");
+    expect(inlineOnly(el)).toBe(true);
+    expect(el.innerHTML.trim()).toBe("<strong><code>nested</code></strong>");
   });
 
-  test("<br> void tag", () => {
+  test("<br> void tag in innerHTML", () => {
     const el = createElement("<p>Line one<br>Line two</p>");
-    const { t, m } = toPh(el);
-    expect(t).toBe("Line one<0/>Line two");
-    expect(m.get(0)![1]).toBe(""); // void = no close tag
+    expect(inlineOnly(el)).toBe(true);
+    const html = el.innerHTML.trim();
+    expect(html).toMatch(/Line one<br\s*\/?>Line two/);
   });
 
   test("mixed void and paired tags", () => {
     const el = createElement("<p><strong>Bold</strong><br>Next line</p>");
-    const { t, m } = toPh(el);
-    expect(t).toBe("<0>Bold</0><1/>Next line");
-    expect(m.get(0)![0]).toBe("<strong>");
-    expect(m.get(1)![1]).toBe("");
+    expect(inlineOnly(el)).toBe(true);
+    const html = el.innerHTML.trim();
+    expect(html).toContain("<strong>Bold</strong>");
+    expect(html).toMatch(/<br\s*\/?>/);
   });
 
   test("terms page: text + strong mixed content", () => {
     const el = createElement(
       '<p>These Terms govern the <strong>tongues</strong> translation service by <strong>80x24</strong>.</p>'
     );
-    const { t, m, h } = toPh(el);
-    expect(t).toBe("These Terms govern the <0>tongues</0> translation service by <1>80x24</1>.");
-    expect(h).toBe(true);
-    expect(m.get(0)![0]).toBe("<strong>");
-    expect(m.get(1)![0]).toBe("<strong>");
+    expect(inlineOnly(el)).toBe(true);
+    const html = el.innerHTML.trim();
+    expect(html).toContain("<strong>tongues</strong>");
+    expect(html).toContain("<strong>80x24</strong>");
   });
 });
 
-// --- fromPh: restore HTML from placeholders ---
+// --- apply: innerHTML set for mixed-content ---
 
-describe("fromPh (placeholderToHtml)", () => {
-  test("single inline tag", () => {
-    const m = new Map<number, PM>([[0, ["<strong>", "</strong>"]]]);
-    expect(fromPh("Click <0>here</0>", m)).toBe("Click <strong>here</strong>");
+describe("apply: innerHTML for translated mixed-content", () => {
+  test("translated HTML applied via innerHTML", () => {
+    const { document } = makeDoc('<p>Visit <a href="/foo">our site</a></p>');
+    const el = document.querySelector("p")!;
+    const originalHtml = el.innerHTML;
+
+    // Simulate: collect → send innerHTML → receive translated innerHTML
+    el.setAttribute("data-t", el.innerHTML.trim());
+    el.setAttribute("data-th", originalHtml);
+    const translated = 'サイトを<a href="/foo">訪問</a>';
+    el.innerHTML = translated;
+    el.setAttribute("data-tt", translated);
+
+    expect(el.innerHTML).toBe(translated);
+    expect(el.querySelector("a")!.getAttribute("href")).toBe("/foo");
   });
 
-  test("multiple sibling tags", () => {
-    const m = new Map<number, PM>([[0, ["<strong>", "</strong>"]], [1, ["<code>", "</code>"]]]);
-    expect(fromPh("<0>Important</0>: use <1>tongues</1>", m))
-      .toBe("<strong>Important</strong>: use <code>tongues</code>");
+  test("plain text applied via font wrapper", () => {
+    const { document } = makeDoc("<p>Hello world</p>");
+    const el = document.querySelector("p")!;
+    el.setAttribute("data-t", "Hello world");
+    // No data-th → textContent path
+    const f = document.createElement("font");
+    f.setAttribute("data-tf", "1");
+    f.textContent = "안녕하세요 세계";
+    el.replaceChildren(f);
+
+    expect(el.textContent).toBe("안녕하세요 세계");
+  });
+});
+
+// --- undo: restore original ---
+
+describe("undo: restore original innerHTML/textContent", () => {
+  test("mixed-content restore via data-th", () => {
+    const { document } = makeDoc('<p>Visit <a href="/foo">our site</a></p>');
+    const el = document.querySelector("p")!;
+    const originalHtml = el.innerHTML;
+
+    // Apply translation
+    el.setAttribute("data-t", el.innerHTML.trim());
+    el.setAttribute("data-th", originalHtml);
+    el.innerHTML = '<a href="/foo">サイト</a>を訪問';
+    el.setAttribute("data-tt", el.innerHTML);
+
+    // Undo
+    el.innerHTML = el.getAttribute("data-th")!;
+    el.removeAttribute("data-th");
+    el.removeAttribute("data-tt");
+    el.removeAttribute("data-t");
+
+    expect(el.innerHTML).toBe(originalHtml);
   });
 
-  test("nested tags", () => {
-    const m = new Map<number, PM>([[0, ["<strong>", "</strong>"]], [1, ["<code>", "</code>"]]]);
-    expect(fromPh("<0><1>text</1></0>", m)).toBe("<strong><code>text</code></strong>");
+  test("plain text restore via data-t", () => {
+    const { document } = makeDoc("<p>Hello world</p>");
+    const el = document.querySelector("p")!;
+    el.setAttribute("data-t", "Hello world");
+    el.textContent = "안녕하세요 세계";
+
+    // Undo
+    el.textContent = el.getAttribute("data-t");
+    el.removeAttribute("data-t");
+
+    expect(el.textContent).toBe("Hello world");
+  });
+});
+
+// --- o === t: data-th saved even when translation matches original ---
+
+describe("o === t: data-th saved for mixed-content", () => {
+  test("data-th set when o === t and element has children", () => {
+    const { document } = makeDoc('<p>Click <a href="/help">here</a></p>');
+    const el = document.querySelector("p")!;
+    const originalHtml = el.innerHTML;
+
+    // Simulate o === t path with children
+    if (!el.hasAttribute("data-t")) {
+      el.setAttribute("data-t", el.innerHTML.trim());
+      if (el.children.length > 0) el.setAttribute("data-th", el.innerHTML);
+    }
+
+    expect(el.hasAttribute("data-t")).toBe(true);
+    expect(el.hasAttribute("data-th")).toBe(true);
+    expect(el.getAttribute("data-th")).toBe(originalHtml);
   });
 
-  test("tag with attributes preserved", () => {
-    const m = new Map<number, PM>([[0, ['<a href="https://example.com">', "</a>"]]]);
-    expect(fromPh("Visit <0>our site</0>", m)).toBe('Visit <a href="https://example.com">our site</a>');
-  });
+  test("data-th NOT set when o === t and element has no children", () => {
+    const { document } = makeDoc("<p>plain text</p>");
+    const el = document.querySelector("p")!;
 
-  test("void tag (br)", () => {
-    const m = new Map<number, PM>([[0, ["<br>", ""]]]);
-    expect(fromPh("Line one<0/>Line two", m)).toBe("Line one<br>Line two");
-  });
+    if (!el.hasAttribute("data-t")) {
+      el.setAttribute("data-t", "plain text");
+      if (el.children.length > 0) el.setAttribute("data-th", el.innerHTML);
+    }
 
-  test("LLM drops placeholder — graceful degradation", () => {
-    const m = new Map<number, PM>([[0, ["<strong>", "</strong>"]]]);
-    expect(fromPh("Click here", m)).toBe("Click here");
-  });
-
-  test("translation reorders placeholders", () => {
-    const m = new Map<number, PM>([[0, ["<strong>", "</strong>"]], [1, ["<code>", "</code>"]], [2, ['<a href="/docs">', "</a>"]]]);
-    expect(fromPh("Install <1>tongues</1> <2>here</2>: <0>important</0>", m))
-      .toBe('Install <code>tongues</code> <a href="/docs">here</a>: <strong>important</strong>');
-  });
-
-  test("LLM drops closing tag — cleanup removes orphan opener", () => {
-    const m = new Map<number, PM>([[0, ["<strong>", "</strong>"]]]);
-    expect(fromPh("<0>텍스트", m)).toBe("텍스트");
-  });
-
-  test("LLM adds space in tag — cleanup removes malformed tags", () => {
-    const m = new Map<number, PM>([[0, ["<strong>", "</strong>"]]]);
-    expect(fromPh("<0 >텍스트</0>", m)).toBe("텍스트");
-  });
-
-  test("LLM outputs orphan closing tag — cleanup removes it", () => {
-    const m = new Map<number, PM>([[0, ["<strong>", "</strong>"]]]);
-    expect(fromPh("텍스트</0>", m)).toBe("텍스트");
-  });
-
-  test("mixed: some placeholders resolve, others broken", () => {
-    const m = new Map<number, PM>([[0, ["<strong>", "</strong>"]], [1, ['<a href="/privacy">', "</a>"]]]);
-    expect(fromPh("<0>중요</0> 정보는 <1>여기에서 확인하세요", m))
-      .toBe("<strong>중요</strong> 정보는 여기에서 확인하세요");
+    expect(el.hasAttribute("data-t")).toBe(true);
+    expect(el.hasAttribute("data-th")).toBe(false);
   });
 });
 
@@ -238,181 +234,114 @@ describe("inlineOnly", () => {
   });
 });
 
-// --- Full roundtrip: toPh → translate → fromPh ---
+// --- Full roundtrip: collect innerHTML → translate → apply innerHTML ---
 
-describe("full roundtrip (toPh → translate → fromPh)", () => {
-  test("code tag survives translation", () => {
-    const el = createElement("<p>Use <code>data-tongues-ignore</code> attribute</p>");
-    const { t, m } = toPh(el);
-    const translated = t.replace("Use", "Use the").replace("attribute", "option");
-    expect(fromPh(translated, m)).toBe("Use the <code>data-tongues-ignore</code> option");
-  });
-
-  test("terms page mixed-content survives translation", () => {
-    const el = createElement(
-      '<p>These Terms govern the <strong>tongues</strong> service by <strong>80x24</strong>.</p>'
-    );
-    const { t, m } = toPh(el);
-    // Simulated Korean translation
-    const translated = "이 약관은 <1>80x24</1>의 <0>tongues</0> 서비스를 규율합니다.";
-    const html = fromPh(translated, m);
-    expect(html).toBe("이 약관은 <strong>80x24</strong>의 <strong>tongues</strong> 서비스를 규율합니다.");
-  });
-
-  test("br tag preserved through translation", () => {
-    const el = createElement("<p>첫 번째 줄<br>두 번째 줄</p>");
-    const { t, m } = toPh(el);
-    const translated = "First line<0/>Second line";
-    const html = fromPh(translated, m);
-    expect(html).toContain("First line");
-    expect(html).toContain("Second line");
-    expect(html).toMatch(/<br\s*\/?>/);
-  });
-
-  test("original innerHTML can be restored after translation", () => {
-    const { document: doc } = parseHTML(
-      '<!DOCTYPE html><html><body><p>Use <code>data-tongues-ignore</code> attribute</p></body></html>'
-    );
-    const el = doc.body.firstElementChild!;
+describe("full roundtrip (innerHTML → translate → apply)", () => {
+  test("strong tag preserved through translation", () => {
+    const { document } = makeDoc("<p>This is <strong>important</strong> text</p>");
+    const el = document.querySelector("p")!;
     const originalHtml = el.innerHTML;
 
     // Collect
-    const { t, m } = toPh(el);
-    // Apply translation
-    const translated = "Use the <0>data-tongues-ignore</0> option";
-    el.innerHTML = fromPh(translated, m);
-    expect(el.textContent).toBe("Use the data-tongues-ignore option");
+    const collected = el.innerHTML.trim();
+    expect(collected).toContain("<strong>important</strong>");
 
-    // Restore original
-    el.innerHTML = originalHtml;
+    // Apply translated
+    el.setAttribute("data-t", collected);
+    el.setAttribute("data-th", originalHtml);
+    el.innerHTML = "これは<strong>重要な</strong>テキストです";
+
+    expect(el.textContent).toBe("これは重要なテキストです");
+    expect(el.querySelector("strong")!.textContent).toBe("重要な");
+
+    // Restore
+    el.innerHTML = el.getAttribute("data-th")!;
     expect(el.innerHTML).toBe(originalHtml);
-    expect(el.textContent).toBe("Use data-tongues-ignore attribute");
   });
-});
 
-// --- Issue #92: toPh escapes literal < and > from decoded entities ---
+  test("a tag with href preserved through translation", () => {
+    const { document } = makeDoc('<p>Visit <a href="https://example.com">our site</a> now</p>');
+    const el = document.querySelector("p")!;
+    const originalHtml = el.innerHTML;
 
-describe("toPh entity escaping (#92)", () => {
-  test("&lt; and &gt; in text nodes become &lt; and &gt; in placeholder text", () => {
-    const el = createElement(
-      '<p><a href="#" id="next">&lt; newer</a> · <span id="current-date">2026-03-12 (1/18)</span> · <a href="#" id="prev">older &gt;</a></p>'
+    el.setAttribute("data-t", el.innerHTML.trim());
+    el.setAttribute("data-th", originalHtml);
+    el.innerHTML = '今すぐ<a href="https://example.com">サイト</a>を訪問';
+
+    expect(el.querySelector("a")!.getAttribute("href")).toBe("https://example.com");
+    expect(el.querySelector("a")!.textContent).toBe("サイト");
+  });
+
+  test("br tag preserved through translation", () => {
+    const { document } = makeDoc("<p>First line<br>Second line</p>");
+    const el = document.querySelector("p")!;
+    el.setAttribute("data-t", el.innerHTML.trim());
+    el.setAttribute("data-th", el.innerHTML);
+    el.innerHTML = "1行目<br>2行目";
+
+    expect(el.innerHTML).toMatch(/<br\s*\/?>/);
+    expect(el.textContent).toContain("1行目");
+    expect(el.textContent).toContain("2行目");
+  });
+
+  test("multiple inline children with different attributes", () => {
+    const { document } = makeDoc(
+      '<p><a href="/page1" class="link1">Click here</a> for <strong>info</strong></p>'
     );
-    const { t } = toPh(el);
-    // < and > from decoded entities must be escaped so they don't collide with <0>...</0> tags
-    expect(t).toContain("&lt; newer");
-    expect(t).toContain("older &gt;");
-    expect(t).not.toMatch(/(?<!&[lg]t);\s*newer/); // no raw < before newer
+    const el = document.querySelector("p")!;
+    const originalHtml = el.innerHTML;
+    const collected = el.innerHTML.trim();
+
+    expect(collected).toContain('href="/page1"');
+    expect(collected).toContain('class="link1"');
+    expect(collected).toContain("<strong>info</strong>");
+
+    el.setAttribute("data-t", collected);
+    el.setAttribute("data-th", originalHtml);
+    el.innerHTML = '<a href="/page1" class="link1">ここをクリック</a>して<strong>情報</strong>を見る';
+
+    expect(el.querySelector("a")!.getAttribute("href")).toBe("/page1");
+    expect(el.querySelector("strong")!.textContent).toBe("情報");
   });
-});
 
-// --- Issue #92 full scenario: p with multiple a/span children ---
-
-describe("issue #92 fromPh with escaped entities", () => {
-  test("restores all child elements from placeholder map with escaped < and >", () => {
-    const m = new Map<number, PM>([
-      [0, ['<a href="#" id="next" style="opacity: 0.3;">', "</a>"]],
-      [1, ['<span id="current-date">', "</span>"]],
-      [2, ['<a href="#" id="prev" style="opacity: 1;">', "</a>"]],
-      [3, ['<a href="#" id="today">', "</a>"]],
-      [4, ['<a href="#" id="random">', "</a>"]],
-    ]);
-    const translated = "<0>&lt; 新しい</0> · <1>2026-03-12 (1/18)</1> · <2>古い &gt;</2> · <3>今日</3> · <4>ランダム</4>";
-    const html = fromPh(translated, m);
-    // Must restore all child elements with attributes
-    expect(html).toContain('<a href="#" id="next"');
-    expect(html).toContain('<span id="current-date">');
-    expect(html).toContain('<a href="#" id="prev"');
-    expect(html).toContain('<a href="#" id="today">');
-    expect(html).toContain('<a href="#" id="random">');
-    // Must unescape &lt; and &gt; back to display correctly in innerHTML
-    expect(html).toContain("&lt; 新しい");
-    expect(html).toContain("古い &gt;");
-  });
-});
-
-describe("full roundtrip issue #92 scenario", () => {
-  test("p with multiple inline children: toPh → translate → fromPh preserves DOM structure", () => {
-    const el = createElement(
-      '<p><a href="#" id="next" style="opacity: 0.3;">&lt; newer</a> · <span id="current-date">2026-03-12 (1/18)</span> · <a href="#" id="prev" style="opacity: 1;">older &gt;</a> · <a href="#" id="today">today</a> · <a href="#" id="random">random</a></p>'
+  test("issue #92 scenario: p with multiple a/span children", () => {
+    const { document } = makeDoc(
+      '<p><a href="#" id="next">&lt; newer</a> · <span id="current-date">2026-03-12</span> · <a href="#" id="prev">older &gt;</a></p>'
     );
-    const { t, m } = toPh(el);
-    // Simulated translation (Japanese)
-    const translated = "<0>&lt; 新しい</0> · <1>2026-03-12 (1/18)</1> · <2>古い &gt;</2> · <3>今日</3> · <4>ランダム</4>";
-    const html = fromPh(translated, m);
-    // All 5 elements must be present with their attributes
-    expect(html).toContain('<a href="#" id="next"');
-    expect(html).toContain('<span id="current-date">');
-    expect(html).toContain('<a href="#" id="prev"');
-    expect(html).toContain('<a href="#" id="today">');
-    expect(html).toContain('<a href="#" id="random">');
-    // Content must be translated
-    expect(html).toContain("新しい");
-    expect(html).toContain("古い");
-    expect(html).toContain("今日");
-    expect(html).toContain("ランダム");
+    const el = document.querySelector("p")!;
+    const originalHtml = el.innerHTML;
+    const collected = el.innerHTML.trim();
+
+    expect(collected).toContain('id="next"');
+    expect(collected).toContain('id="current-date"');
+    expect(collected).toContain('id="prev"');
+
+    el.setAttribute("data-t", collected);
+    el.setAttribute("data-th", originalHtml);
+    el.innerHTML = '<a href="#" id="next">&lt; 新しい</a> · <span id="current-date">2026-03-12</span> · <a href="#" id="prev">古い &gt;</a>';
+
+    expect(el.querySelector("#next")!.textContent).toBe("< 新しい");
+    expect(el.querySelector("#prev")!.textContent).toBe("古い >");
+
+    // Restore
+    el.innerHTML = el.getAttribute("data-th")!;
+    expect(el.innerHTML).toBe(originalHtml);
   });
 });
 
-// --- Fix #3: phs Map key collision when same text appears in multiple elements ---
+// --- Two elements with same text but different attributes ---
 
-describe("phs element-based keying (#92 fix 3)", () => {
-  test("two elements with identical text structure get independent placeholder maps", () => {
-    // Simulate two <p> elements with the same text but different attributes on children
+describe("independent elements with same text structure", () => {
+  test("each element sends its own innerHTML with unique attributes", () => {
     const el1 = createElement('<p><a href="/page1" class="link1">Click here</a> for info</p>');
     const el2 = createElement('<p><a href="/page2" class="link2">Click here</a> for info</p>');
 
-    const r1 = toPh(el1);
-    const r2 = toPh(el2);
+    const html1 = el1.innerHTML.trim();
+    const html2 = el2.innerHTML.trim();
 
-    // Both produce the same placeholder text
-    expect(r1.t).toBe(r2.t);
-    expect(r1.t).toBe("<0>Click here</0> for info");
-
-    // But the placeholder maps should contain different opening tags
-    expect(r1.m.get(0)![0]).toContain('href="/page1"');
-    expect(r1.m.get(0)![0]).toContain('class="link1"');
-    expect(r2.m.get(0)![0]).toContain('href="/page2"');
-    expect(r2.m.get(0)![0]).toContain('class="link2"');
-
-    // With a text-keyed Map, phs.set(t, r2.m) would overwrite r1.m
-    // With element-keyed WeakMap, each element keeps its own map
-    const phs = new WeakMap<Element, Map<number, PM>>();
-    phs.set(el1, r1.m);
-    phs.set(el2, r2.m);
-
-    // Both should be independently retrievable
-    const pm1 = phs.get(el1)!;
-    const pm2 = phs.get(el2)!;
-    expect(pm1.get(0)![0]).toContain('href="/page1"');
-    expect(pm2.get(0)![0]).toContain('href="/page2"');
-
-    // Translating each should produce different HTML
-    const translated = "<0>ここをクリック</0> 情報";
-    const html1 = fromPh(translated, pm1);
-    const html2 = fromPh(translated, pm2);
+    // innerHTML is different because attributes differ
     expect(html1).toContain('href="/page1"');
-    expect(html1).toContain('class="link1"');
     expect(html2).toContain('href="/page2"');
-    expect(html2).toContain('class="link2"');
-  });
-
-  test("with old text-keyed Map, second element overwrites first (regression proof)", () => {
-    const el1 = createElement('<p><a href="/page1">Click here</a> for info</p>');
-    const el2 = createElement('<p><a href="/page2">Click here</a> for info</p>');
-
-    const r1 = toPh(el1);
-    const r2 = toPh(el2);
-
-    // Demonstrate the old bug: text-keyed Map causes overwrite
-    const oldPhs = new Map<string, Map<number, PM>>();
-    oldPhs.set(r1.t, r1.m);
-    oldPhs.set(r2.t, r2.m); // overwrites r1.m because r1.t === r2.t
-
-    // Only one entry in the Map — el1's data is lost
-    expect(oldPhs.size).toBe(1);
-    const pm = oldPhs.get(r1.t)!;
-    // pm is r2's map, not r1's
-    expect(pm.get(0)![0]).toContain('href="/page2"');
-    expect(pm.get(0)![0]).not.toContain('href="/page1"');
+    expect(html1).not.toBe(html2);
   });
 });

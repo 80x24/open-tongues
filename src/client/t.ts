@@ -14,10 +14,8 @@ const RX = "x-text,x-html,v-text,v-html,:textContent,:innerHTML".split(",");
 const NT = '.notranslate,[translate="no"]';
 const $ = (s: string) => document.querySelectorAll(s);
 
-type PM = [string, string]; // [open, close]
 const LR = /^[a-zA-Z]{2,8}(-[a-zA-Z0-9]{1,8})*$/;
 let api = "", host = "", loc = "", iloc = "", busy = false, done = false, manual = false, pprompt = "", slang = "";
-let phs = new WeakMap<Element, Map<number, PM>>();
 let ob: MutationObserver | null = null, tm: any = null, queued = false;
 
 function cfg() {
@@ -33,41 +31,11 @@ function cfg() {
   return true;
 }
 
-// --- Placeholder: mixed-content (text + inline tags) ---
-
-function esc(s: string): string { return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); }
-
-function toPh(el: Element) {
-  const m = new Map<number, PM>(); let i = 0;
-  function w(n: Node): string {
-    if (n.nodeType === 3) return esc(n.nodeValue || "");
-    if (n.nodeType !== 1) return "";
-    const e = n as Element, tg = e.tagName;
-    if (VD.has(tg)) { m.set(i, [e.outerHTML, ""]); return `<${i++}/>`; }
-    if (IL.has(tg)) {
-      const j = i++, mt = e.outerHTML.match(/^<[^>]+>/);
-      m.set(j, [mt ? mt[0] : `<${tg.toLowerCase()}>`, `</${tg.toLowerCase()}>`]);
-      let s = ""; for (const c of e.childNodes) s += w(c); return `<${j}>${s}</${j}>`;
-    }
-    let s = ""; for (const c of e.childNodes) s += w(c); return s;
-  }
-  let t = ""; for (const c of el.childNodes) t += w(c);
-  return { t: t.trim(), m, h: m.size > 0 };
-}
-
-function fromPh(t: string, m: Map<number, PM>): string {
-  let r = t.replace(/<(\d+)\/>/g, (_, i) => m.get(+i)?.[0] || ""), ok = true;
-  while (ok) { ok = false; r = r.replace(/<(\d+)>(.*?)<\/\1>/gs, (_, i, c) => {
-    ok = true; const e = m.get(+i); return e ? e[0] + c + e[1] : c; }); }
-  r = r.replace(/<\/?(\d+)\s*\/?>/g, "");
-  return r;
-}
-
 // --- Collect ---
 
 function collect(inc: boolean, root?: Element) {
   const txt = new Map<string, Element[]>(), atr = new Map<string, { e: Element; a: string }[]>();
-  phs = new WeakMap(); const hd = new WeakSet<Element>();
+  const hd = new WeakSet<Element>();
   const tw = document.createTreeWalker(root || document.body, NodeFilter.SHOW_ELEMENT, { acceptNode(n) {
     const el = n as Element;
     const nt = el.closest(NT);
@@ -92,7 +60,7 @@ function collect(inc: boolean, root?: Element) {
   let n: Node | null;
   while ((n = tw.nextNode())) {
     const el = n as Element; let t: string;
-    if (hd.has(el)) { const r = toPh(el); t = r.t; if (r.h) phs.set(el, r.m); }
+    if (hd.has(el)) t = el.innerHTML.trim();
     else t = el.textContent!.trim();
     if (t && t.length >= 2) { const a = txt.get(t) || []; a.push(el); txt.set(t, a); }
   }
@@ -121,16 +89,27 @@ function fi(el: Element) {
 function apply(tE: Map<string, Element[]>, aE: Map<string, { e: Element; a: string }[]>, tr: Map<string, string>) {
   ps(); try { for (const [o, t] of tr) {
     if (o === t) {
-      for (const el of tE.get(o) || []) { if (!el.hasAttribute("data-t")) el.setAttribute("data-t", o); el.classList.remove("t-ing"); }
+      for (const el of tE.get(o) || []) {
+        if (!el.hasAttribute("data-t")) {
+          el.setAttribute("data-t", o);
+          if (el.children.length > 0) el.setAttribute("data-th", el.innerHTML);
+        }
+        el.classList.remove("t-ing");
+      }
       for (const { e, a } of aE.get(o) || []) if (!e.hasAttribute(`data-ta-${a}`)) e.setAttribute(`data-ta-${a}`, o);
       continue;
     }
     const els = tE.get(o);
-    if (els) { for (const el of els) { let pm = phs.get(el);
-      if (!pm?.size && el.children.length > 0) { const r = toPh(el); if (r.h) pm = r.m; }
-      if (!el.hasAttribute("data-t")) { el.setAttribute("data-t", o); if (pm?.size) el.setAttribute("data-th", el.innerHTML); }
-      if (pm?.size) { const h = fromPh(t, pm); el.innerHTML = h; el.setAttribute("data-tt", h); }
-      else { const f = document.createElement("font"); f.setAttribute("data-tf", "1"); f.textContent = t; el.replaceChildren(f); }
+    if (els) { for (const el of els) {
+      if (!el.hasAttribute("data-t")) {
+        el.setAttribute("data-t", o);
+        if (el.hasAttribute("data-th") || el.children.length > 0) el.setAttribute("data-th", el.innerHTML);
+      }
+      if (el.hasAttribute("data-th")) {
+        el.innerHTML = t; el.setAttribute("data-tt", t);
+      } else {
+        const f = document.createElement("font"); f.setAttribute("data-tf", "1"); f.textContent = t; el.replaceChildren(f);
+      }
       fi(el);
     } }
     for (const { e, a } of aE.get(o) || []) { if (!e.hasAttribute(`data-ta-${a}`)) e.setAttribute(`data-ta-${a}`, o); e.setAttribute(a, t); }

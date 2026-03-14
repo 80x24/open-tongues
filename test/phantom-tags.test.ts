@@ -1,173 +1,124 @@
 import { describe, test, expect } from "bun:test";
 
 /**
- * Unit tests for phantom placeholder tag stripping.
- * Replicates stripPhantomTags() from translator.ts to verify
- * that LLM-hallucinated tags are removed from translations
- * when the original text had no placeholder tags.
- *
- * Bug: https://github.com/80x24/tongues/issues/75
- * When docs page is in Korean, Claude sometimes adds <0>...</0> tags
- * to translations of plain text (no inline HTML), causing literal
- * "<0>...</0>" to appear in the UI.
+ * Unit tests for phantom HTML tag stripping.
+ * Replicates stripPhantomHtml() from translator.ts:
+ * if original has no `<`, strip any HTML the LLM hallucinated.
  */
 
-// --- Replicate from translator.ts ---
-
-const PH_TAG_RE = /<\/?(\d+)\s*\/?>/;
-
-function stripPhantomTags(original: string, translated: string): string {
-  if (PH_TAG_RE.test(original)) return translated;
-  return translated.replace(/<\/?(\d+)\s*\/?>/g, "");
+function stripPhantomHtml(original: string, translated: string): string {
+  if (original.includes("<")) return translated;
+  return translated.replace(/<[^>]+>/g, "");
 }
 
-// --- Tests ---
-
-describe("stripPhantomTags", () => {
-  describe("plain text originals (no tags) — phantom tags MUST be stripped", () => {
-    test("strips wrapping <0>...</0> phantom tag (exact bug from #75)", () => {
+describe("stripPhantomHtml", () => {
+  describe("plain text originals (no <) — phantom HTML MUST be stripped", () => {
+    test("strips wrapping <strong>...</strong> phantom tag", () => {
       const original = 'Read-only. Current translation locale (e.g. "en", "ja").';
-      const translated = '<0>읽기 전용입니다. 현재 번역 언어입니다 (예: "en", "ja").</0>';
-      expect(stripPhantomTags(original, translated))
+      const translated = '<strong>읽기 전용입니다.</strong> 현재 번역 언어입니다 (예: "en", "ja").';
+      expect(stripPhantomHtml(original, translated))
         .toBe('읽기 전용입니다. 현재 번역 언어입니다 (예: "en", "ja").');
     });
 
-    test("strips phantom <0>...</0> around full sentence", () => {
+    test("strips phantom <em> around full sentence", () => {
       const original = "Switch to a specific language. Returns a Promise.";
-      const translated = "<0>특정 언어로 전환합니다. Promise를 반환합니다.</0>";
-      expect(stripPhantomTags(original, translated))
+      const translated = "<em>특정 언어로 전환합니다. Promise를 반환합니다.</em>";
+      expect(stripPhantomHtml(original, translated))
         .toBe("특정 언어로 전환합니다. Promise를 반환합니다.");
     });
 
     test("strips multiple phantom tags in same translation", () => {
       const original = "Revert to original text.";
-      const translated = "<0>원본 텍스트로</0> <1>되돌립니다.</1>";
-      expect(stripPhantomTags(original, translated))
+      const translated = "<strong>원본 텍스트로</strong> <em>되돌립니다.</em>";
+      expect(stripPhantomHtml(original, translated))
         .toBe("원본 텍스트로 되돌립니다.");
     });
 
-    test("strips phantom self-closing tag <0/>", () => {
+    test("strips phantom <br> tag", () => {
       const original = "Hello world";
-      const translated = "안녕하세요<0/> 세계";
-      expect(stripPhantomTags(original, translated))
+      const translated = "안녕하세요<br> 세계";
+      expect(stripPhantomHtml(original, translated))
         .toBe("안녕하세요 세계");
     });
 
-    test("strips orphaned opening tag", () => {
-      const original = "Simple text";
-      const translated = "<0>간단한 텍스트";
-      expect(stripPhantomTags(original, translated))
-        .toBe("간단한 텍스트");
-    });
-
-    test("strips orphaned closing tag", () => {
-      const original = "Simple text";
-      const translated = "간단한 텍스트</0>";
-      expect(stripPhantomTags(original, translated))
-        .toBe("간단한 텍스트");
+    test("strips phantom <a> with attributes", () => {
+      const original = "Click here for help";
+      const translated = '<a href="/help">도움말은 여기를 클릭하세요</a>';
+      expect(stripPhantomHtml(original, translated))
+        .toBe("도움말은 여기를 클릭하세요");
     });
 
     test("handles translation with no phantom tags (no-op)", () => {
       const original = "Hello world";
       const translated = "안녕하세요 세계";
-      expect(stripPhantomTags(original, translated))
+      expect(stripPhantomHtml(original, translated))
         .toBe("안녕하세요 세계");
     });
 
     test("handles empty translation", () => {
       const original = "Hello";
       const translated = "";
-      expect(stripPhantomTags(original, translated)).toBe("");
-    });
-
-    test("strips higher-numbered phantom tags", () => {
-      const original = "Client script version";
-      const translated = "<5>클라이언트 스크립트 버전</5>";
-      expect(stripPhantomTags(original, translated))
-        .toBe("클라이언트 스크립트 버전");
-    });
-
-    test("strips phantom tags with spaces (malformed)", () => {
-      const original = "Some text";
-      const translated = "<0 >텍스트</0 >";
-      // The regex handles optional whitespace before closing >
-      expect(stripPhantomTags(original, translated))
-        .toBe("텍스트");
+      expect(stripPhantomHtml(original, translated)).toBe("");
     });
   });
 
-  describe("text with real tags — MUST preserve them", () => {
-    test("preserves <0>...</0> when original has it", () => {
-      const original = "<0>Email address:</0> Provided during registration.";
-      const translated = "<0>メールアドレス：</0> 登録時に提供されます。";
-      expect(stripPhantomTags(original, translated))
-        .toBe("<0>メールアドレス：</0> 登録時に提供されます。");
+  describe("text with real HTML tags — MUST preserve them", () => {
+    test("preserves <strong> when original has it", () => {
+      const original = "This is <strong>important</strong> text";
+      const translated = "これは<strong>重要な</strong>テキストです";
+      expect(stripPhantomHtml(original, translated))
+        .toBe("これは<strong>重要な</strong>テキストです");
     });
 
-    test("preserves multiple tags when original has them", () => {
-      const original = "<0>Bold</0> and <1>code</1> here";
-      const translated = "<0>太字</0> と <1>コード</1> ここ";
-      expect(stripPhantomTags(original, translated))
-        .toBe("<0>太字</0> と <1>コード</1> ここ");
+    test("preserves <a> with href when original has it", () => {
+      const original = 'Visit <a href="/docs">docs</a> page';
+      const translated = '<a href="/docs">ドキュメント</a>ページを見る';
+      expect(stripPhantomHtml(original, translated))
+        .toBe('<a href="/docs">ドキュメント</a>ページを見る');
     });
 
-    test("preserves self-closing tag when original has it", () => {
-      const original = "Line one<0/>Line two";
-      const translated = "1行目<0/>2行目";
-      expect(stripPhantomTags(original, translated))
-        .toBe("1行目<0/>2行目");
+    test("preserves <br> when original has it", () => {
+      const original = "Line one<br>Line two";
+      const translated = "1行目<br>2行目";
+      expect(stripPhantomHtml(original, translated))
+        .toBe("1行目<br>2行目");
     });
 
-    test("preserves tags even when LLM reorders them", () => {
-      const original = "<0>First</0> then <1>second</1>";
-      const translated = "<1>두 번째</1> 그리고 <0>첫 번째</0>";
-      expect(stripPhantomTags(original, translated))
-        .toBe("<1>두 번째</1> 그리고 <0>첫 번째</0>");
+    test("preserves multiple tags when original has HTML", () => {
+      const original = "<strong>Bold</strong> and <code>code</code> here";
+      const translated = "<strong>太字</strong> と <code>コード</code> ここ";
+      expect(stripPhantomHtml(original, translated))
+        .toBe("<strong>太字</strong> と <code>コード</code> ここ");
     });
   });
 
   describe("edge cases", () => {
-    test("text with angle brackets that are NOT placeholder tags", () => {
+    test("text with angle brackets that look like HTML but aren't tags", () => {
       const original = "Use array[0] for the first element";
       const translated = "최초 요소에 array[0] 사용";
-      expect(stripPhantomTags(original, translated))
+      expect(stripPhantomHtml(original, translated))
         .toBe("최초 요소에 array[0] 사용");
-    });
-
-    test("text with code examples mentioning tags", () => {
-      // This text has NO actual placeholder tags (no <0>, </0> etc.)
-      const original = 'Use translate="no" to exclude elements';
-      const translated = '<0>요소를 제외하려면 translate="no"를 사용하세요</0>';
-      expect(stripPhantomTags(original, translated))
-        .toBe('요소를 제외하려면 translate="no"를 사용하세요');
     });
 
     test("other locales: Japanese with phantom tags", () => {
       const original = "Read-only. Current translation locale.";
-      const translated = "<0>読み取り専用。現在の翻訳ロケール。</0>";
-      expect(stripPhantomTags(original, translated))
+      const translated = "<strong>読み取り専用。現在の翻訳ロケール。</strong>";
+      expect(stripPhantomHtml(original, translated))
         .toBe("読み取り専用。現在の翻訳ロケール。");
     });
 
     test("other locales: Chinese with phantom tags", () => {
       const original = "Switch to a specific language.";
-      const translated = "<0>切换到指定语言。</0>";
-      expect(stripPhantomTags(original, translated))
+      const translated = "<em>切换到指定语言。</em>";
+      expect(stripPhantomHtml(original, translated))
         .toBe("切换到指定语言。");
     });
 
-    test("other locales: Spanish with phantom tags", () => {
-      const original = "Read-only. Current translation locale.";
-      const translated = "<0>Solo lectura. Configuración regional de traducción actual.</0>";
-      expect(stripPhantomTags(original, translated))
-        .toBe("Solo lectura. Configuración regional de traducción actual.");
-    });
-
-    test("double-digit phantom tags", () => {
-      const original = "Plain text without tags";
-      const translated = "<10>태그 없는 일반 텍스트</10>";
-      expect(stripPhantomTags(original, translated))
-        .toBe("태그 없는 일반 텍스트");
+    test("self-closing tags stripped from plain text", () => {
+      const original = "Plain text";
+      const translated = "일반 텍스트<br/>";
+      expect(stripPhantomHtml(original, translated))
+        .toBe("일반 텍스트");
     });
   });
 });
