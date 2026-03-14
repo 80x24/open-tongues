@@ -126,7 +126,8 @@ function apply(tE: Map<string, Element[]>, aE: Map<string, { e: Element; a: stri
       continue;
     }
     const els = tE.get(o);
-    if (els) { for (const el of els) { const pm = phs.get(el);
+    if (els) { for (const el of els) { let pm = phs.get(el);
+      if (!pm?.size && el.children.length > 0) { const r = toPh(el); if (r.h) pm = r.m; }
       if (!el.hasAttribute("data-t")) { el.setAttribute("data-t", o); if (pm?.size) el.setAttribute("data-th", el.innerHTML); }
       if (pm?.size) { const h = fromPh(t, pm); el.innerHTML = h; el.setAttribute("data-tt", h); }
       else { const f = document.createElement("font"); f.setAttribute("data-tf", "1"); f.textContent = t; el.replaceChildren(f); }
