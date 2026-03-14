@@ -16,7 +16,7 @@ const $ = (s: string) => document.querySelectorAll(s);
 
 type PM = [string, string]; // [open, close]
 const LR = /^[a-zA-Z]{2,8}(-[a-zA-Z0-9]{1,8})*$/;
-let api = "", host = "", loc = "", iloc = "", busy = false, done = false, manual = false, pprompt = "";
+let api = "", host = "", loc = "", iloc = "", busy = false, done = false, manual = false, pprompt = "", slang = "";
 let phs = new WeakMap<Element, Map<number, PM>>();
 let ob: MutationObserver | null = null, tm: any = null, queued = false;
 
@@ -25,6 +25,7 @@ function cfg() {
   if (!s) return false;
   api = (s.src || "").replace(/\/t\.js.*$/, ""); host = location.hostname;
   iloc = loc = (navigator.language || "en").split("-")[0];
+  slang = (s.getAttribute("data-lang") || "").split("-")[0];
   manual = s.hasAttribute("data-manual");
   pprompt = (s.getAttribute("data-preprompt") || "").trim().slice(0, 30);
   const st = document.createElement("style"); st.textContent = ".t-ing{animation:t-p 1.5s ease-in-out infinite}@keyframes t-p{0%,100%{opacity:1}50%{opacity:.4}}";
@@ -205,14 +206,14 @@ function observe() {
 async function init() {
   console.log("[open-tongues] https://tongues.80x24.ai");
   if (!cfg()) return; observe();
-  (window as any).t = { version: __VERSION__, get locale() { return loc; },
+  (window as any).t = { version: __VERSION__, get locale() { return loc; }, get sourceLocale() { return slang || iloc; },
     async setLocale(l: string) { if (l === loc || !l || l.length > 35 || !LR.test(l)) return; loc = l; await translate(); },
     restore() { if (tm) { clearTimeout(tm); tm = null; } undo(); done = false; loc = iloc; },
     async translateEl(target: string | Element | Element[]) {
       const els = typeof target === "string" ? [...document.querySelectorAll(target)] : Array.isArray(target) ? target : [target];
       for (const el of els) { if (el instanceof Element) await translate(true, el); }
     } };
-  if (!manual) await translate();
+  if (!manual && !(slang && loc === slang)) await translate();
 }
 
 if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", init); else init();
