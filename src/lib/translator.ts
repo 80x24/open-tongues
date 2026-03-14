@@ -192,8 +192,9 @@ ${prompt}`,
       const sqliteVal = sqliteResults[i];
       if (sqliteVal) {
         sqliteHits++;
-        result[text] = sqliteVal;
-        storeCache(domain, to, text, sqliteVal);
+        const clean = stripPhantomTags(text, sqliteVal);
+        result[text] = clean;
+        storeCache(domain, to, text, clean);
       } else {
         cacheMisses++;
         uncached.push(text);

@@ -148,7 +148,7 @@ function undo() {
 
 // --- Cache (localStorage) ---
 
-function ck() { return `t:${host}:${loc}`; }
+function ck() { return `t:${host}:${loc}:${__VERSION__}`; }
 function lg(): Map<string, string> {
   try { const r = localStorage.getItem(ck()); return r ? new Map(JSON.parse(r)) : new Map(); } catch { return new Map(); }
 }
