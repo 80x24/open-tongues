@@ -143,13 +143,13 @@ async function translate(inc = false, root?: Element) {
   const { txt, atr } = collect(inc, root), all = [...new Set([...txt.keys(), ...atr.keys()])];
   if (!all.length) { busy = false; return; }
   for (const els of txt.values()) for (const el of els) el.classList.add("t-ing");
-  const pulseStart = Date.now();
+  // Yield to browser so pulse animation renders before any fetch/apply
+  await new Promise(w => requestAnimationFrame(() => setTimeout(w, 0)));
   const cached = lg(), hit = new Map<string, string>(), miss: string[] = [];
   for (const t of all) { const v = cached.get(t); if (v !== undefined) hit.set(t, v); else miss.push(t); }
   if (hit.size) {
     // Ensure pulse is visible for at least 300ms even on cache hit
-    const elapsed = Date.now() - pulseStart;
-    if (elapsed < 300) await new Promise(w => setTimeout(w, 300 - elapsed));
+    await new Promise(w => setTimeout(w, 300));
     apply(txt, atr, hit);
   }
   if (miss.length) {
