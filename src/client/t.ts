@@ -42,10 +42,7 @@ function collect(inc: boolean, root?: Element) {
     if (SK.has(el.tagName) || (nt && nt !== root)) return 2;
     if ((el as HTMLElement).isContentEditable) return 2;
     if (el.parentElement && hd.has(el.parentElement)) return 3;
-    if (inc && el.hasAttribute("data-t")) {
-      if (!el.hasAttribute("data-th")) return 2;
-      if (el.innerHTML === el.getAttribute("data-th") || el.innerHTML === el.getAttribute("data-tt")) return 2;
-    }
+    if (inc && el.hasAttribute("data-th")) return 2;
     const t = el.textContent?.trim();
     if (!t || t.length < 2) return 3;
     if (el.children.length > 0) {
@@ -60,7 +57,9 @@ function collect(inc: boolean, root?: Element) {
   let n: Node | null;
   while ((n = tw.nextNode())) {
     const el = n as Element; let t: string;
-    if (hd.has(el)) t = el.innerHTML.trim();
+    const orig = el.getAttribute("data-th");
+    if (orig) t = orig.trim();
+    else if (hd.has(el)) t = el.innerHTML.trim();
     else t = el.textContent!.trim();
     if (t && t.length >= 2) { const a = txt.get(t) || []; a.push(el); txt.set(t, a); }
   }
@@ -68,8 +67,9 @@ function collect(inc: boolean, root?: Element) {
   for (const el of atRoot.querySelectorAll("[placeholder],[title],[alt],[aria-label]")) {
     const ant = el.closest(NT);
     if ((ant && ant !== root) || (el as HTMLElement).isContentEditable || SK.has(el.tagName)) continue;
-    for (const a of AT) { const v = el.getAttribute(a)?.trim();
-      if (!v || v.length < 2 || (inc && el.hasAttribute(`data-ta-${a}`))) continue;
+    for (const a of AT) { const origAttr = el.getAttribute(`data-ta-${a}`);
+      const v = (origAttr || el.getAttribute(a))?.trim();
+      if (!v || v.length < 2 || (inc && origAttr)) continue;
       const arr = atr.get(v) || []; arr.push({ e: el, a }); atr.set(v, arr); }
   }
   return { txt, atr };
@@ -90,10 +90,7 @@ function apply(tE: Map<string, Element[]>, aE: Map<string, { e: Element; a: stri
   ps(); try { for (const [o, t] of tr) {
     if (o === t) {
       for (const el of tE.get(o) || []) {
-        if (!el.hasAttribute("data-t")) {
-          el.setAttribute("data-t", o);
-          if (el.children.length > 0) el.setAttribute("data-th", el.innerHTML);
-        }
+        if (!el.hasAttribute("data-th")) el.setAttribute("data-th", el.innerHTML);
         el.classList.remove("t-ing");
       }
       for (const { e, a } of aE.get(o) || []) if (!e.hasAttribute(`data-ta-${a}`)) e.setAttribute(`data-ta-${a}`, o);
@@ -101,15 +98,8 @@ function apply(tE: Map<string, Element[]>, aE: Map<string, { e: Element; a: stri
     }
     const els = tE.get(o);
     if (els) { for (const el of els) {
-      if (!el.hasAttribute("data-t")) {
-        el.setAttribute("data-t", o);
-        if (el.hasAttribute("data-th") || el.children.length > 0) el.setAttribute("data-th", el.innerHTML);
-      }
-      if (el.hasAttribute("data-th")) {
-        el.innerHTML = t; el.setAttribute("data-tt", t);
-      } else {
-        const f = document.createElement("font"); f.setAttribute("data-tf", "1"); f.textContent = t; el.replaceChildren(f);
-      }
+      if (!el.hasAttribute("data-th")) el.setAttribute("data-th", el.innerHTML);
+      el.innerHTML = t;
       fi(el);
     } }
     for (const { e, a } of aE.get(o) || []) { if (!e.hasAttribute(`data-ta-${a}`)) e.setAttribute(`data-ta-${a}`, o); e.setAttribute(a, t); }
@@ -119,8 +109,7 @@ function apply(tE: Map<string, Element[]>, aE: Map<string, { e: Element; a: stri
 function undo() {
   ps(); try {
     $(".t-ing").forEach(el => { el.classList.remove("t-ing"); const s = (el as HTMLElement).style; s.opacity = ""; s.transition = ""; });
-    $("[data-th]").forEach(el => { el.innerHTML = el.getAttribute("data-th")!; el.removeAttribute("data-th"); el.removeAttribute("data-tt"); el.removeAttribute("data-t"); });
-    $("[data-t]").forEach(el => { el.textContent = el.getAttribute("data-t"); el.removeAttribute("data-t"); });
+    $("[data-th]").forEach(el => { el.innerHTML = el.getAttribute("data-th")!; el.removeAttribute("data-th"); });
     for (const a of AT) { const k = `data-ta-${a}`; $(`[${k}]`).forEach(el => { el.setAttribute(a, el.getAttribute(k)!); el.removeAttribute(k); }); }
   } finally { rs(); }
 }
@@ -139,7 +128,7 @@ function ls(tr: Map<string, string>) {
 
 async function translate(inc = false, root?: Element) {
   if (busy) return; busy = true;
-  if (!inc && !root) { undo(); done = false; }
+  if (!inc && !root) { done = false; }
   const { txt, atr } = collect(inc, root), all = [...new Set([...txt.keys(), ...atr.keys()])];
   if (!all.length) { busy = false; return; }
   for (const els of txt.values()) for (const el of els) el.classList.add("t-ing");
@@ -174,7 +163,7 @@ function observe() {
     for (const m of muts) { const el = m.target instanceof Element ? m.target : m.target.parentElement;
       if (!el || (el as HTMLElement).isContentEditable) continue;
       if (el.closest(NT)) continue;
-      if (el.hasAttribute("data-t")) { el.removeAttribute("data-t"); el.removeAttribute("data-th"); el.removeAttribute("data-tt"); }
+      if (el.hasAttribute("data-th")) { el.removeAttribute("data-th"); }
       dirty = true; }
     if (dirty) { if (tm) clearTimeout(tm);
       tm = setTimeout(() => { if (!busy) translate(done); else queued = true; }, 300); }
