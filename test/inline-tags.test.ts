@@ -101,25 +101,19 @@ describe("apply: innerHTML for translated mixed-content", () => {
     const originalHtml = el.innerHTML;
 
     // Simulate: collect → send innerHTML → receive translated innerHTML
-    el.setAttribute("data-t", el.innerHTML.trim());
     el.setAttribute("data-th", originalHtml);
     const translated = 'サイトを<a href="/foo">訪問</a>';
     el.innerHTML = translated;
-    el.setAttribute("data-tt", translated);
 
     expect(el.innerHTML).toBe(translated);
     expect(el.querySelector("a")!.getAttribute("href")).toBe("/foo");
   });
 
-  test("plain text applied via font wrapper", () => {
+  test("plain text applied via innerHTML", () => {
     const { document } = makeDoc("<p>Hello world</p>");
     const el = document.querySelector("p")!;
-    el.setAttribute("data-t", "Hello world");
-    // No data-th → textContent path
-    const f = document.createElement("font");
-    f.setAttribute("data-tf", "1");
-    f.textContent = "안녕하세요 세계";
-    el.replaceChildren(f);
+    el.setAttribute("data-th", el.innerHTML);
+    el.innerHTML = "안녕하세요 세계";
 
     expect(el.textContent).toBe("안녕하세요 세계");
   });
@@ -134,29 +128,25 @@ describe("undo: restore original innerHTML/textContent", () => {
     const originalHtml = el.innerHTML;
 
     // Apply translation
-    el.setAttribute("data-t", el.innerHTML.trim());
     el.setAttribute("data-th", originalHtml);
     el.innerHTML = '<a href="/foo">サイト</a>を訪問';
-    el.setAttribute("data-tt", el.innerHTML);
 
     // Undo
     el.innerHTML = el.getAttribute("data-th")!;
     el.removeAttribute("data-th");
-    el.removeAttribute("data-tt");
-    el.removeAttribute("data-t");
 
     expect(el.innerHTML).toBe(originalHtml);
   });
 
-  test("plain text restore via data-t", () => {
+  test("plain text restore via data-th", () => {
     const { document } = makeDoc("<p>Hello world</p>");
     const el = document.querySelector("p")!;
-    el.setAttribute("data-t", "Hello world");
-    el.textContent = "안녕하세요 세계";
+    el.setAttribute("data-th", el.innerHTML);
+    el.innerHTML = "안녕하세요 세계";
 
     // Undo
-    el.textContent = el.getAttribute("data-t");
-    el.removeAttribute("data-t");
+    el.innerHTML = el.getAttribute("data-th")!;
+    el.removeAttribute("data-th");
 
     expect(el.textContent).toBe("Hello world");
   });
@@ -170,28 +160,22 @@ describe("o === t: data-th saved for mixed-content", () => {
     const el = document.querySelector("p")!;
     const originalHtml = el.innerHTML;
 
-    // Simulate o === t path with children
-    if (!el.hasAttribute("data-t")) {
-      el.setAttribute("data-t", el.innerHTML.trim());
-      if (el.children.length > 0) el.setAttribute("data-th", el.innerHTML);
-    }
+    // Simulate o === t path: always set data-th
+    if (!el.hasAttribute("data-th")) el.setAttribute("data-th", el.innerHTML);
 
-    expect(el.hasAttribute("data-t")).toBe(true);
     expect(el.hasAttribute("data-th")).toBe(true);
     expect(el.getAttribute("data-th")).toBe(originalHtml);
   });
 
-  test("data-th NOT set when o === t and element has no children", () => {
+  test("data-th set when o === t and element has no children", () => {
     const { document } = makeDoc("<p>plain text</p>");
     const el = document.querySelector("p")!;
 
-    if (!el.hasAttribute("data-t")) {
-      el.setAttribute("data-t", "plain text");
-      if (el.children.length > 0) el.setAttribute("data-th", el.innerHTML);
-    }
+    // Now data-th is always set (unified approach)
+    if (!el.hasAttribute("data-th")) el.setAttribute("data-th", el.innerHTML);
 
-    expect(el.hasAttribute("data-t")).toBe(true);
-    expect(el.hasAttribute("data-th")).toBe(false);
+    expect(el.hasAttribute("data-th")).toBe(true);
+    expect(el.getAttribute("data-th")).toBe("plain text");
   });
 });
 
@@ -247,7 +231,6 @@ describe("full roundtrip (innerHTML → translate → apply)", () => {
     expect(collected).toContain("<strong>important</strong>");
 
     // Apply translated
-    el.setAttribute("data-t", collected);
     el.setAttribute("data-th", originalHtml);
     el.innerHTML = "これは<strong>重要な</strong>テキストです";
 
@@ -264,7 +247,6 @@ describe("full roundtrip (innerHTML → translate → apply)", () => {
     const el = document.querySelector("p")!;
     const originalHtml = el.innerHTML;
 
-    el.setAttribute("data-t", el.innerHTML.trim());
     el.setAttribute("data-th", originalHtml);
     el.innerHTML = '今すぐ<a href="https://example.com">サイト</a>を訪問';
 
@@ -275,7 +257,6 @@ describe("full roundtrip (innerHTML → translate → apply)", () => {
   test("br tag preserved through translation", () => {
     const { document } = makeDoc("<p>First line<br>Second line</p>");
     const el = document.querySelector("p")!;
-    el.setAttribute("data-t", el.innerHTML.trim());
     el.setAttribute("data-th", el.innerHTML);
     el.innerHTML = "1行目<br>2行目";
 
@@ -296,7 +277,6 @@ describe("full roundtrip (innerHTML → translate → apply)", () => {
     expect(collected).toContain('class="link1"');
     expect(collected).toContain("<strong>info</strong>");
 
-    el.setAttribute("data-t", collected);
     el.setAttribute("data-th", originalHtml);
     el.innerHTML = '<a href="/page1" class="link1">ここをクリック</a>して<strong>情報</strong>を見る';
 
@@ -316,7 +296,6 @@ describe("full roundtrip (innerHTML → translate → apply)", () => {
     expect(collected).toContain('id="current-date"');
     expect(collected).toContain('id="prev"');
 
-    el.setAttribute("data-t", collected);
     el.setAttribute("data-th", originalHtml);
     el.innerHTML = '<a href="#" id="next">&lt; 新しい</a> · <span id="current-date">2026-03-12</span> · <a href="#" id="prev">古い &gt;</a>';
 
