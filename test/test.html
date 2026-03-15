@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>tongues test page</title>
+  <meta name="description" content="Translation test page for debugging pulse animation and locale switching">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: system-ui, sans-serif; max-width: 720px; margin: 0 auto; padding: 24px; color: #222; }
+    nav { display: flex; gap: 8px; margin-bottom: 32px; flex-wrap: wrap; align-items: center; }
+    nav button { padding: 6px 14px; border: 1px solid #ccc; border-radius: 4px; background: #fff; cursor: pointer; font-size: 14px; }
+    nav button:hover { background: #f0f0f0; }
+    nav button.active { background: #222; color: #fff; border-color: #222; }
+    h1 { font-size: 28px; margin-bottom: 16px; }
+    h2 { font-size: 20px; margin: 24px 0 12px; }
+    p { line-height: 1.7; margin-bottom: 12px; }
+    .card { border: 1px solid #e0e0e0; border-radius: 8px; padding: 16px; margin-bottom: 16px; }
+    .card h3 { font-size: 16px; margin-bottom: 8px; }
+    ul { padding-left: 20px; margin-bottom: 12px; }
+    li { margin-bottom: 6px; line-height: 1.6; }
+    input { padding: 8px 12px; border: 1px solid #ccc; border-radius: 4px; width: 100%; margin-bottom: 12px; font-size: 14px; }
+    .status { font-size: 12px; color: #888; font-family: monospace; margin-left: auto; }
+    footer { margin-top: 48px; padding-top: 16px; border-top: 1px solid #eee; font-size: 13px; color: #999; }
+    .inline-test { margin-bottom: 12px; }
+  </style>
+</head>
+<body>
+  <nav translate="no">
+    <button onclick="switchLocale('ja')" id="btn-ja" class="active">日本語 (source)</button>
+    <button onclick="switchLocale('ko')" id="btn-ko">한국어</button>
+    <button onclick="switchLocale('en')" id="btn-en">English</button>
+    <button onclick="switchLocale('zh')" id="btn-zh">中文</button>
+    <button onclick="switchLocale('fr')" id="btn-fr">Français</button>
+    <button onclick="clearCache()" style="margin-left:8px;color:#c00;border-color:#c00;">Cache Clear</button>
+    <span class="status" id="status">ready</span>
+  </nav>
+
+  <h1>翻訳テストページ</h1>
+
+  <p>このページは、tonguesの翻訳機能をテストするためのページです。ロケールを切り替えて、パルスアニメーションの動作を確認してください。</p>
+
+  <h2>基本テキスト</h2>
+  <p>人工知能は、人間の知的能力を模倣するコンピュータシステムの開発に焦点を当てた研究分野です。</p>
+  <p>機械学習は人工知能の一分野であり、データからパターンを学習するアルゴリズムの設計を研究します。</p>
+  <p>深層学習はニューラルネットワークを使用して、複雑なパターン認識を実現する技術です。</p>
+
+  <h2>translateEl({ to }) パターン</h2>
+  <div style="border:2px solid #e67e22;border-radius:8px;padding:16px;margin-bottom:16px;background:#fef9f3;">
+    <p style="font-size:13px;color:#e67e22;margin-bottom:12px;font-weight:600;">このセクションは translateEl('.container', { to }) パターンをテストします</p>
+    <nav translate="no" style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;">
+      <button onclick="menupiePattern('ko')" style="padding:6px 14px;border:1px solid #e67e22;border-radius:4px;background:#fff;cursor:pointer;">韓国語</button>
+      <button onclick="menupiePattern('en')" style="padding:6px 14px;border:1px solid #e67e22;border-radius:4px;background:#fff;cursor:pointer;">English</button>
+      <button onclick="menupiePattern('zh')" style="padding:6px 14px;border:1px solid #e67e22;border-radius:4px;background:#fff;cursor:pointer;">中文</button>
+      <button onclick="menupiePattern('ja')" style="padding:6px 14px;border:1px solid #e67e22;border-radius:4px;background:#fff;cursor:pointer;">日本語に戻す</button>
+      <span class="status" id="menupie-status">ready</span>
+    </nav>
+    <div class="container" translate="no">
+      <p>このコンテナ内のテキストは、translateElで個別に翻訳されます。</p>
+      <p>メニューの<strong>価格表示</strong>や<em>説明文</em>がこのパターンで翻訳されます。</p>
+      <p>注文ボタンを押すと、確認画面が表示されます。お支払い方法を選択してください。</p>
+      <div class="card">
+        <h3>本日のおすすめ</h3>
+        <p>季節の野菜を使った特製サラダと、シェフ自慢のパスタをご用意しています。</p>
+      </div>
+      <div class="card">
+        <h3>ドリンクメニュー</h3>
+        <ul>
+          <li>コーヒー（ホット・アイス）</li>
+          <li>紅茶（レモン・ミルク）</li>
+          <li>フレッシュジュース（オレンジ・りんご）</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <h2>インライン要素テスト</h2>
+  <p class="inline-test">この文章には<strong>太字テキスト</strong>と<em>斜体テキスト</em>が含まれています。</p>
+  <p class="inline-test">詳細については<a href="#link1">こちらのリンク</a>をご覧ください。</p>
+  <p class="inline-test"><code>console.log()</code>を使用してデバッグできます。</p>
+
+  <h2>カード形式</h2>
+  <div class="card">
+    <h3>プロジェクト概要</h3>
+    <p>tonguesは、ウェブサイトの自動翻訳を提供するオープンソースライブラリです。</p>
+  </div>
+  <div class="card">
+    <h3>主な機能</h3>
+    <ul>
+      <li>リアルタイムのDOM翻訳</li>
+      <li>ローカルストレージによるキャッシュ</li>
+      <li>インライン要素の保持</li>
+      <li>ミューテーションオブザーバーによる動的コンテンツ対応</li>
+    </ul>
+  </div>
+  <div class="card">
+    <h3>技術スタック</h3>
+    <p>バックエンドはBunとHonoで構築され、翻訳にはClaude APIを使用しています。</p>
+  </div>
+
+  <h2>属性テスト</h2>
+  <input type="text" placeholder="検索キーワードを入力してください" title="テキスト入力欄">
+  <input type="text" placeholder="メールアドレスを入力" title="メール入力欄">
+
+  <h2>長文テスト</h2>
+  <p>ウェブアプリケーションの国際化は、グローバル展開において非常に重要な要素です。適切な翻訳システムを導入することで、世界中のユーザーに対して自然な言語体験を提供することが可能になります。</p>
+  <p>翻訳品質の向上には、コンテキストの理解が不可欠です。単語レベルの翻訳ではなく、文脈を考慮した自然な翻訳を目指すべきです。</p>
+  <p>パフォーマンスの最適化も重要な課題です。キャッシュ戦略とバッチ処理により、ユーザー体験を損なうことなく高品質な翻訳を提供できます。</p>
+
+  <footer>
+    <p>tongues test page — <span class="notranslate">open-tongues v<span id="version">-</span></span></p>
+  </footer>
+
+  <script src="/t.js" data-lang="ja" data-manual defer></script>
+  <script>
+    let currentLocale = 'ja';
+
+    function switchLocale(lang) {
+      if (!window.t) return;
+      const status = document.getElementById('status');
+
+      document.querySelectorAll('nav button[id^="btn-"]').forEach(b => b.classList.remove('active'));
+      const btn = document.getElementById('btn-' + lang);
+      if (btn) btn.classList.add('active');
+
+      status.textContent = 'translating to ' + lang + '...';
+      const start = performance.now();
+
+      if (lang === window.t.sourceLocale) {
+        window.t.restore();
+        currentLocale = lang;
+        status.textContent = 'restored (' + Math.round(performance.now() - start) + 'ms)';
+        return;
+      }
+
+      window.t.setLocale(lang).then(() => {
+        currentLocale = lang;
+        status.textContent = lang + ' done (' + Math.round(performance.now() - start) + 'ms)';
+      });
+    }
+
+    async function menupiePattern(code) {
+      if (!window.t) return;
+      const status = document.getElementById('menupie-status');
+      status.textContent = 'translating to ' + code + '...';
+      const start = performance.now();
+
+      await window.t.translateEl('.container', { to: code });
+      status.textContent = code + ' done (' + Math.round(performance.now() - start) + 'ms)';
+    }
+
+    function clearCache() {
+      const keys = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key && key.startsWith('t:')) keys.push(key);
+      }
+      keys.forEach(k => localStorage.removeItem(k));
+      document.getElementById('status').textContent = 'cache cleared (' + keys.length + ' entries)';
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+      if (window.t) document.getElementById('version').textContent = window.t.version;
+    });
+  </script>
+</body>
+</html>
