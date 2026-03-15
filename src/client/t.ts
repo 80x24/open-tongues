@@ -143,9 +143,15 @@ async function translate(inc = false, root?: Element) {
   const { txt, atr } = collect(inc, root), all = [...new Set([...txt.keys(), ...atr.keys()])];
   if (!all.length) { busy = false; return; }
   for (const els of txt.values()) for (const el of els) el.classList.add("t-ing");
+  const pulseStart = Date.now();
   const cached = lg(), hit = new Map<string, string>(), miss: string[] = [];
   for (const t of all) { const v = cached.get(t); if (v !== undefined) hit.set(t, v); else miss.push(t); }
-  if (hit.size) apply(txt, atr, hit);
+  if (hit.size) {
+    // Ensure pulse is visible for at least 300ms even on cache hit
+    const elapsed = Date.now() - pulseStart;
+    if (elapsed < 300) await new Promise(w => setTimeout(w, 300 - elapsed));
+    apply(txt, atr, hit);
+  }
   if (miss.length) {
     const desc = document.querySelector('meta[name="description"]')?.getAttribute("content") || "";
     const go = async (ch: string[]) => { for (let r = 0; r < 3; r++) { try {
@@ -187,7 +193,14 @@ async function init() {
   console.log("[open-tongues] https://tongues.80x24.ai");
   if (!cfg()) return; observe();
   (window as any).t = { version: __VERSION__, get locale() { return loc; }, get sourceLocale() { return slang || iloc; },
-    async setLocale(l: string) { if (l === loc || !l || l.length > 35 || !LR.test(l)) return; loc = l; await translate(); },
+    async setLocale(l: string) {
+      if (!l || l.length > 35 || !LR.test(l)) return;
+      // If setting to source language, restore original
+      if (slang && l === slang) { this.restore(); return; }
+      // Skip if already at requested locale and translation is done
+      if (l === loc && done) return;
+      loc = l; await translate();
+    },
     restore() { if (tm) { clearTimeout(tm); tm = null; } undo(); done = false; loc = iloc; },
     async translateEl(target: string | Element | Element[]) {
       const els = typeof target === "string" ? [...document.querySelectorAll(target)] : Array.isArray(target) ? target : [target];
