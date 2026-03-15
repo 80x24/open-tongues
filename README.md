@@ -153,10 +153,34 @@ Health check with cache statistics.
 
 ### Client API (`window.t`)
 
-- `t.setLocale("ko")` — translate to a language
+- `t.setLocale("ko")` — translate the page to a language
 - `t.restore()` — revert to original text
-- `t.translateEl(".selector")` — translate specific elements
+- `t.translateEl(target)` — translate specific elements (bypasses root's `translate="no"`)
+- `t.translateEl(target, { to: "ko" })` — translate specific elements to a locale without changing global state
 - `t.locale` — current locale (read-only)
+- `t.sourceLocale` — source language (read-only)
+
+### Scoped Translation
+
+Use `translateEl` with `{ to }` to translate specific sections independently — no `setLocale` needed:
+
+```html
+<nav>UI stays in original language</nav>
+<main translate="no">Content translated on demand</main>
+```
+
+```js
+// Translate only the content area to Korean
+await t.translateEl("main", { to: "ko" });
+
+// Switch to English — only main changes, UI untouched
+await t.translateEl("main", { to: "en" });
+
+// Restore to original — no API call
+await t.translateEl("main", { to: t.sourceLocale });
+```
+
+This is useful when you want to translate content independently from UI, or when different sections need different languages.
 
 ### Exclude from translation
 
