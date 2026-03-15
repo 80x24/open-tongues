@@ -3,192 +3,470 @@
  * <script src="https://tongues.80x24.ai/t.js" defer></script>
  */
 declare const __VERSION__: string;
+
 if (!(window as any).__tongues) {
-(window as any).__tongues = true;
+  (window as any).__tongues = true;
 
-const SK = new Set("SCRIPT,STYLE,NOSCRIPT,SVG,TEMPLATE,CODE,PRE,KBD,SAMP,VAR,CANVAS,VIDEO,AUDIO,IFRAME,MATH".split(","));
-const IL = new Set("STRONG,EM,B,I,U,S,CODE,A,SPAN,MARK,SUB,SUP,SMALL,ABBR,CITE,DFN,TIME,Q".split(","));
-const VD = new Set("BR,IMG,WBR".split(","));
-const AT = ["placeholder", "title", "alt", "aria-label"];
-const RX = "x-text,x-html,v-text,v-html,:textContent,:innerHTML".split(",");
-const NT = '.notranslate,[translate="no"]';
-const $ = (s: string) => document.querySelectorAll(s);
+  // --- Constants ---
 
-const LR = /^[a-zA-Z]{2,8}(-[a-zA-Z0-9]{1,8})*$/;
-let api = "", host = "", loc = "", iloc = "", busy = false, done = false, manual = false, pprompt = "", slang = "";
-let ob: MutationObserver | null = null, tm: any = null, queued = false;
+  const SKIP_TAGS = new Set(
+    "SCRIPT,STYLE,NOSCRIPT,SVG,TEMPLATE,CODE,PRE,KBD,SAMP,VAR,CANVAS,VIDEO,AUDIO,IFRAME,MATH".split(",")
+  );
+  const INLINE_TAGS = new Set(
+    "STRONG,EM,B,I,U,S,CODE,A,SPAN,MARK,SUB,SUP,SMALL,ABBR,CITE,DFN,TIME,Q".split(",")
+  );
+  const VOID_TAGS = new Set("BR,IMG,WBR".split(","));
+  const TRANSLATABLE_ATTRS = ["placeholder", "title", "alt", "aria-label"];
+  const REACTIVE_BINDINGS = "x-text,x-html,v-text,v-html,:textContent,:innerHTML".split(",");
+  const NO_TRANSLATE = '.notranslate,[translate="no"]';
+  const LANG_REGEX = /^[a-zA-Z]{2,8}(-[a-zA-Z0-9]{1,8})*$/;
+  const BATCH_SIZE = 17;
+  const MAX_PARALLEL = 10;
+  const MAX_RETRIES = 3;
 
-function cfg() {
-  const s = (document.currentScript || document.querySelector("script[src*='t.js']")) as HTMLScriptElement | null;
-  if (!s) return false;
-  api = (s.src || "").replace(/\/t\.js.*$/, ""); host = location.hostname;
-  iloc = loc = (navigator.language || "en").split("-")[0];
-  slang = (s.getAttribute("data-lang") || "").split("-")[0];
-  manual = s.hasAttribute("data-manual");
-  pprompt = (s.getAttribute("data-preprompt") || "").trim().slice(0, 30);
-  const st = document.createElement("style"); st.textContent = ".t-ing{animation:t-p 1.5s ease-in-out infinite}@keyframes t-p{0%,100%{opacity:1}50%{opacity:.4}}";
-  document.head.appendChild(st);
-  return true;
-}
+  // --- State ---
 
-// --- Collect ---
+  let apiBase = "";
+  let hostname = "";
+  let locale = "";
+  let initialLocale = "";
+  let sourceLang = "";
+  let isManual = false;
+  let preprompt = "";
+  let isBusy = false;
+  let isDone = false;
+  let isQueued = false;
+  let observer: MutationObserver | null = null;
+  let debounceTimer: any = null;
 
-function collect(inc: boolean, root?: Element) {
-  const txt = new Map<string, Element[]>(), atr = new Map<string, { e: Element; a: string }[]>();
-  const hd = new WeakSet<Element>();
-  const tw = document.createTreeWalker(root || document.body, NodeFilter.SHOW_ELEMENT, { acceptNode(n) {
-    const el = n as Element;
-    const nt = el.closest(NT);
-    if (SK.has(el.tagName) || (nt && nt !== root)) return 2;
-    if ((el as HTMLElement).isContentEditable) return 2;
-    if (el.parentElement && hd.has(el.parentElement)) return 3;
-    if (inc && el.hasAttribute("data-th")) return 2;
-    const t = el.textContent?.trim();
-    if (!t || t.length < 2) return 3;
-    if (el.children.length > 0) {
-      for (const c of el.children) {
-        if (!IL.has(c.tagName) && !VD.has(c.tagName)) return 3;
-        for (const a of RX) if (c.hasAttribute(a)) return 3;
+  // --- Config ---
+
+  function configure(): boolean {
+    const script = (document.currentScript ||
+      document.querySelector("script[src*='t.js']")) as HTMLScriptElement | null;
+    if (!script) return false;
+
+    apiBase = (script.src || "").replace(/\/t\.js.*$/, "");
+    hostname = location.hostname;
+    initialLocale = locale = (navigator.language || "en").split("-")[0];
+    sourceLang = (script.getAttribute("data-lang") || "").split("-")[0];
+    isManual = script.hasAttribute("data-manual");
+    preprompt = (script.getAttribute("data-preprompt") || "").trim().slice(0, 30);
+
+    const style = document.createElement("style");
+    style.textContent =
+      ".t-ing{animation:t-p 1.5s ease-in-out infinite}" +
+      "@keyframes t-p{0%,100%{opacity:1}50%{opacity:.4}}";
+    document.head.appendChild(style);
+
+    return true;
+  }
+
+  // --- DOM helpers ---
+
+  function selectAll(selector: string) {
+    return document.querySelectorAll(selector);
+  }
+
+  function hasInlineChildrenOnly(el: Element): boolean {
+    for (const child of el.children) {
+      if (!INLINE_TAGS.has(child.tagName) && !VOID_TAGS.has(child.tagName)) return false;
+      for (const binding of REACTIVE_BINDINGS) {
+        if (child.hasAttribute(binding)) return false;
       }
-      hd.add(el); return 1;
     }
-    return 1;
-  }});
-  let n: Node | null;
-  while ((n = tw.nextNode())) {
-    const el = n as Element; let t: string;
-    const orig = el.getAttribute("data-th");
-    if (orig) t = orig.trim();
-    else if (hd.has(el)) t = el.innerHTML.trim();
-    else t = el.textContent!.trim();
-    if (t && t.length >= 2) { const a = txt.get(t) || []; a.push(el); txt.set(t, a); }
+    return true;
   }
-  const atRoot = root || document.body;
-  for (const el of atRoot.querySelectorAll("[placeholder],[title],[alt],[aria-label]")) {
-    const ant = el.closest(NT);
-    if ((ant && ant !== root) || (el as HTMLElement).isContentEditable || SK.has(el.tagName)) continue;
-    for (const a of AT) { const origAttr = el.getAttribute(`data-ta-${a}`);
-      const v = (origAttr || el.getAttribute(a))?.trim();
-      if (!v || v.length < 2 || (inc && origAttr)) continue;
-      const arr = atr.get(v) || []; arr.push({ e: el, a }); atr.set(v, arr); }
+
+  // --- Collect ---
+
+  function collect(incremental: boolean, root?: Element) {
+    const textMap = new Map<string, Element[]>();
+    const attrMap = new Map<string, { el: Element; attr: string }[]>();
+    const htmlElements = new WeakSet<Element>();
+
+    const walker = document.createTreeWalker(
+      root || document.body,
+      NodeFilter.SHOW_ELEMENT,
+      {
+        acceptNode(node) {
+          const el = node as Element;
+          const noTranslate = el.closest(NO_TRANSLATE);
+
+          if (SKIP_TAGS.has(el.tagName) || (noTranslate && noTranslate !== root)) {
+            return NodeFilter.FILTER_REJECT;
+          }
+          if ((el as HTMLElement).isContentEditable) {
+            return NodeFilter.FILTER_REJECT;
+          }
+          if (el.parentElement && htmlElements.has(el.parentElement)) {
+            return NodeFilter.FILTER_SKIP;
+          }
+          if (incremental && el.hasAttribute("data-th")) {
+            return NodeFilter.FILTER_REJECT;
+          }
+
+          const text = el.textContent?.trim();
+          if (!text || text.length < 2) return NodeFilter.FILTER_SKIP;
+
+          if (el.children.length > 0) {
+            if (!hasInlineChildrenOnly(el)) return NodeFilter.FILTER_SKIP;
+            htmlElements.add(el);
+          }
+
+          return NodeFilter.FILTER_ACCEPT;
+        },
+      }
+    );
+
+    let node: Node | null;
+    while ((node = walker.nextNode())) {
+      const el = node as Element;
+      const savedOriginal = el.getAttribute("data-th");
+      let text: string;
+
+      if (savedOriginal) {
+        text = savedOriginal.trim();
+      } else if (htmlElements.has(el)) {
+        text = el.innerHTML.trim();
+      } else {
+        text = el.textContent!.trim();
+      }
+
+      if (text && text.length >= 2) {
+        const list = textMap.get(text) || [];
+        list.push(el);
+        textMap.set(text, list);
+      }
+    }
+
+    // Collect translatable attributes
+    const searchRoot = root || document.body;
+    for (const el of searchRoot.querySelectorAll("[placeholder],[title],[alt],[aria-label]")) {
+      const noTranslate = el.closest(NO_TRANSLATE);
+      if ((noTranslate && noTranslate !== root) || (el as HTMLElement).isContentEditable || SKIP_TAGS.has(el.tagName)) {
+        continue;
+      }
+
+      for (const attr of TRANSLATABLE_ATTRS) {
+        const savedOriginal = el.getAttribute(`data-ta-${attr}`);
+        const value = (savedOriginal || el.getAttribute(attr))?.trim();
+        if (!value || value.length < 2 || (incremental && savedOriginal)) continue;
+
+        const list = attrMap.get(value) || [];
+        list.push({ el, attr });
+        attrMap.set(value, list);
+      }
+    }
+
+    return { textMap, attrMap };
   }
-  return { txt, atr };
-}
 
-// --- Apply ---
+  // --- Apply ---
 
-function fi(el: Element) {
-  el.classList.remove("t-ing");
-  const s = (el as HTMLElement).style;
-  s.transition = "none"; s.opacity = "0.3";
-  void (el as HTMLElement).offsetHeight;
-  s.transition = "opacity .4s ease-in"; s.opacity = "1";
-  el.addEventListener("transitionend", () => { s.opacity = ""; s.transition = ""; }, { once: true });
-}
+  function fadeIn(el: Element) {
+    el.classList.remove("t-ing");
+    const style = (el as HTMLElement).style;
+    style.transition = "none";
+    style.opacity = "0.3";
+    void (el as HTMLElement).offsetHeight; // force reflow
+    style.transition = "opacity .4s ease-in";
+    style.opacity = "1";
+    el.addEventListener("transitionend", () => {
+      style.opacity = "";
+      style.transition = "";
+    }, { once: true });
+  }
 
-function apply(tE: Map<string, Element[]>, aE: Map<string, { e: Element; a: string }[]>, tr: Map<string, string>) {
-  ps(); try { for (const [o, t] of tr) {
-    if (o === t) {
-      for (const el of tE.get(o) || []) {
-        if (!el.hasAttribute("data-th")) el.setAttribute("data-th", el.innerHTML);
+  function applyTranslations(
+    textMap: Map<string, Element[]>,
+    attrMap: Map<string, { el: Element; attr: string }[]>,
+    translations: Map<string, string>
+  ) {
+    pauseObserver();
+    try {
+      for (const [original, translated] of translations) {
+        // Same text — just mark as processed
+        if (original === translated) {
+          for (const el of textMap.get(original) || []) {
+            if (!el.hasAttribute("data-th")) el.setAttribute("data-th", el.innerHTML);
+            el.classList.remove("t-ing");
+          }
+          for (const { el, attr } of attrMap.get(original) || []) {
+            if (!el.hasAttribute(`data-ta-${attr}`)) el.setAttribute(`data-ta-${attr}`, original);
+          }
+          continue;
+        }
+
+        // Apply text translations
+        const elements = textMap.get(original);
+        if (elements) {
+          for (const el of elements) {
+            if (!el.hasAttribute("data-th")) el.setAttribute("data-th", el.innerHTML);
+            el.innerHTML = translated;
+            fadeIn(el);
+          }
+        }
+
+        // Apply attribute translations
+        for (const { el, attr } of attrMap.get(original) || []) {
+          if (!el.hasAttribute(`data-ta-${attr}`)) el.setAttribute(`data-ta-${attr}`, original);
+          el.setAttribute(attr, translated);
+        }
+      }
+    } finally {
+      resumeObserver();
+    }
+  }
+
+  function undoTranslations() {
+    pauseObserver();
+    try {
+      // Clear pulse animations
+      selectAll(".t-ing").forEach((el) => {
         el.classList.remove("t-ing");
+        const style = (el as HTMLElement).style;
+        style.opacity = "";
+        style.transition = "";
+      });
+
+      // Restore original text
+      selectAll("[data-th]").forEach((el) => {
+        el.innerHTML = el.getAttribute("data-th")!;
+        el.removeAttribute("data-th");
+      });
+
+      // Restore original attributes
+      for (const attr of TRANSLATABLE_ATTRS) {
+        const dataAttr = `data-ta-${attr}`;
+        selectAll(`[${dataAttr}]`).forEach((el) => {
+          el.setAttribute(attr, el.getAttribute(dataAttr)!);
+          el.removeAttribute(dataAttr);
+        });
       }
-      for (const { e, a } of aE.get(o) || []) if (!e.hasAttribute(`data-ta-${a}`)) e.setAttribute(`data-ta-${a}`, o);
-      continue;
+    } finally {
+      resumeObserver();
     }
-    const els = tE.get(o);
-    if (els) { for (const el of els) {
-      if (!el.hasAttribute("data-th")) el.setAttribute("data-th", el.innerHTML);
-      el.innerHTML = t;
-      fi(el);
-    } }
-    for (const { e, a } of aE.get(o) || []) { if (!e.hasAttribute(`data-ta-${a}`)) e.setAttribute(`data-ta-${a}`, o); e.setAttribute(a, t); }
-  } } finally { rs(); }
-}
-
-function undo() {
-  ps(); try {
-    $(".t-ing").forEach(el => { el.classList.remove("t-ing"); const s = (el as HTMLElement).style; s.opacity = ""; s.transition = ""; });
-    $("[data-th]").forEach(el => { el.innerHTML = el.getAttribute("data-th")!; el.removeAttribute("data-th"); });
-    for (const a of AT) { const k = `data-ta-${a}`; $(`[${k}]`).forEach(el => { el.setAttribute(a, el.getAttribute(k)!); el.removeAttribute(k); }); }
-  } finally { rs(); }
-}
-
-// --- Cache (localStorage) ---
-
-function ck() { return `t:${host}:${loc}:${__VERSION__}`; }
-function lg(): Map<string, string> {
-  try { const r = localStorage.getItem(ck()); return r ? new Map(JSON.parse(r)) : new Map(); } catch { return new Map(); }
-}
-function ls(tr: Map<string, string>) {
-  try { const m = lg(); for (const [k, v] of tr) m.set(k, v); localStorage.setItem(ck(), JSON.stringify([...m])); } catch {}
-}
-
-// --- Translate ---
-
-async function translate(inc = false, root?: Element) {
-  if (busy) return; busy = true;
-  if (!inc && !root) { done = false; }
-  const { txt, atr } = collect(inc, root), all = [...new Set([...txt.keys(), ...atr.keys()])];
-  if (!all.length) { busy = false; return; }
-  for (const els of txt.values()) for (const el of els) el.classList.add("t-ing");
-  const cached = lg(), hit = new Map<string, string>(), miss: string[] = [];
-  for (const t of all) { const v = cached.get(t); if (v !== undefined) hit.set(t, v); else miss.push(t); }
-  if (hit.size) apply(txt, atr, hit);
-  if (miss.length) {
-    const desc = document.querySelector('meta[name="description"]')?.getAttribute("content") || "";
-    const go = async (ch: string[]) => { for (let r = 0; r < 3; r++) { try {
-      const res = await fetch(`${api}/api/translate`, { method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ texts: ch, to: loc, domain: host, pageTitle: document.title, pageDescription: desc, ...(pprompt && { preprompt: pprompt }) }) });
-      if (!res.ok) throw 0;
-      const tr = new Map(Object.entries((await res.json()).translations)); apply(txt, atr, tr); ls(tr); return;
-    } catch { if (r < 2) await new Promise(w => setTimeout(w, 300 * (r + 1))); } } };
-    const chs: string[][] = [];
-    for (let i = 0; i < miss.length; i += 17) chs.push(miss.slice(i, i + 17));
-    for (let i = 0; i < chs.length; i += 10) await Promise.all(chs.slice(i, i + 10).map(go));
   }
-  if (!root) done = true; busy = false;
-  if (queued) { queued = false; setTimeout(() => translate(true), 100); }
-  rs();
-}
 
-// --- Observer ---
+  // --- Cache (localStorage) ---
 
-function ps() { ob?.disconnect(); }
-function rs() { ob?.observe(document.body, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: AT }); }
+  function cacheKey() {
+    return `t:${hostname}:${locale}:${__VERSION__}`;
+  }
 
-function observe() {
-  ob = new MutationObserver(muts => {
-    if (manual) return; let dirty = false;
-    for (const m of muts) { const el = m.target instanceof Element ? m.target : m.target.parentElement;
-      if (!el || (el as HTMLElement).isContentEditable) continue;
-      if (el.closest(NT)) continue;
-      if (el.hasAttribute("data-th")) { el.removeAttribute("data-th"); }
-      dirty = true; }
-    if (dirty) { if (tm) clearTimeout(tm);
-      tm = setTimeout(() => { if (!busy) translate(done); else queued = true; }, 300); }
-  }); rs();
-}
+  function loadCache(): Map<string, string> {
+    try {
+      const raw = localStorage.getItem(cacheKey());
+      return raw ? new Map(JSON.parse(raw)) : new Map();
+    } catch {
+      return new Map();
+    }
+  }
 
-// --- Init ---
+  function saveCache(translations: Map<string, string>) {
+    try {
+      const merged = loadCache();
+      for (const [key, value] of translations) merged.set(key, value);
+      localStorage.setItem(cacheKey(), JSON.stringify([...merged]));
+    } catch {}
+  }
 
-async function init() {
-  console.log("[open-tongues] https://tongues.80x24.ai");
-  if (!cfg()) return; observe();
-  (window as any).t = { version: __VERSION__, get locale() { return loc; }, get sourceLocale() { return slang || iloc; },
-    async setLocale(l: string) {
-      if (!l || l.length > 35 || !LR.test(l)) return;
-      if (slang && l === slang) { this.restore(); return; }
-      if (l === loc && done) return;
-      loc = l; await translate();
-    },
-    restore() { if (tm) { clearTimeout(tm); tm = null; } undo(); done = false; loc = iloc; },
-    async translateEl(target: string | Element | Element[]) {
-      const els = typeof target === "string" ? [...document.querySelectorAll(target)] : Array.isArray(target) ? target : [target];
-      for (const el of els) { if (el instanceof Element) await translate(true, el); }
-    } };
-  if (!manual && !(slang && loc === slang)) await translate();
-}
+  // --- Translate ---
 
-if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", init); else init();
+  async function translate(incremental = false, root?: Element) {
+    if (isBusy) return;
+    isBusy = true;
+
+    if (!incremental && !root) {
+      isDone = false;
+    }
+
+    const { textMap, attrMap } = collect(incremental, root);
+    const allTexts = [...new Set([...textMap.keys(), ...attrMap.keys()])];
+
+    if (!allTexts.length) {
+      isBusy = false;
+      return;
+    }
+
+    // Start pulse animation on all collected elements
+    for (const elements of textMap.values()) {
+      for (const el of elements) {
+        el.classList.add("t-ing");
+      }
+    }
+
+    // Check localStorage cache
+    const cached = loadCache();
+    const hits = new Map<string, string>();
+    const misses: string[] = [];
+
+    for (const text of allTexts) {
+      const cachedValue = cached.get(text);
+      if (cachedValue !== undefined) {
+        hits.set(text, cachedValue);
+      } else {
+        misses.push(text);
+      }
+    }
+
+    if (hits.size) applyTranslations(textMap, attrMap, hits);
+
+    // Fetch missing translations from API
+    if (misses.length) {
+      const pageDescription =
+        document.querySelector('meta[name="description"]')?.getAttribute("content") || "";
+
+      const fetchBatch = async (batch: string[]) => {
+        for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+          try {
+            const response = await fetch(`${apiBase}/api/translate`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                texts: batch,
+                to: locale,
+                domain: hostname,
+                pageTitle: document.title,
+                pageDescription,
+                ...(preprompt && { preprompt }),
+              }),
+            });
+
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
+            const data = await response.json();
+            const translations = new Map(Object.entries(data.translations));
+            applyTranslations(textMap, attrMap, translations);
+            saveCache(translations);
+            return;
+          } catch {
+            if (attempt < MAX_RETRIES - 1) {
+              await new Promise((resolve) => setTimeout(resolve, 300 * (attempt + 1)));
+            }
+          }
+        }
+      };
+
+      // Split into chunks and process in parallel batches
+      const chunks: string[][] = [];
+      for (let i = 0; i < misses.length; i += BATCH_SIZE) {
+        chunks.push(misses.slice(i, i + BATCH_SIZE));
+      }
+      for (let i = 0; i < chunks.length; i += MAX_PARALLEL) {
+        await Promise.all(chunks.slice(i, i + MAX_PARALLEL).map(fetchBatch));
+      }
+    }
+
+    if (!root) isDone = true;
+    isBusy = false;
+
+    if (isQueued) {
+      isQueued = false;
+      setTimeout(() => translate(true), 100);
+    }
+
+    resumeObserver();
+  }
+
+  // --- Observer ---
+
+  function pauseObserver() {
+    observer?.disconnect();
+  }
+
+  function resumeObserver() {
+    observer?.observe(document.body, {
+      childList: true,
+      subtree: true,
+      characterData: true,
+      attributes: true,
+      attributeFilter: TRANSLATABLE_ATTRS,
+    });
+  }
+
+  function setupObserver() {
+    observer = new MutationObserver((mutations) => {
+      if (isManual) return;
+
+      let dirty = false;
+      for (const mutation of mutations) {
+        const el = mutation.target instanceof Element
+          ? mutation.target
+          : mutation.target.parentElement;
+
+        if (!el || (el as HTMLElement).isContentEditable) continue;
+        if (el.closest(NO_TRANSLATE)) continue;
+        if (el.hasAttribute("data-th")) el.removeAttribute("data-th");
+
+        dirty = true;
+      }
+
+      if (dirty) {
+        if (debounceTimer) clearTimeout(debounceTimer);
+        debounceTimer = setTimeout(() => {
+          if (!isBusy) translate(isDone);
+          else isQueued = true;
+        }, 300);
+      }
+    });
+
+    resumeObserver();
+  }
+
+  // --- Init ---
+
+  async function init() {
+    console.log("[open-tongues] https://tongues.80x24.ai");
+    if (!configure()) return;
+    setupObserver();
+
+    (window as any).t = {
+      version: __VERSION__,
+
+      get locale() {
+        return locale;
+      },
+
+      get sourceLocale() {
+        return sourceLang || initialLocale;
+      },
+
+      async setLocale(lang: string) {
+        if (!lang || lang.length > 35 || !LANG_REGEX.test(lang)) return;
+        if (sourceLang && lang === sourceLang) { this.restore(); return; }
+        if (lang === locale && isDone) return;
+        locale = lang;
+        await translate();
+      },
+
+      restore() {
+        if (debounceTimer) { clearTimeout(debounceTimer); debounceTimer = null; }
+        undoTranslations();
+        isDone = false;
+        locale = initialLocale;
+      },
+
+      async translateEl(target: string | Element | Element[]) {
+        const elements = typeof target === "string"
+          ? [...document.querySelectorAll(target)]
+          : Array.isArray(target) ? target : [target];
+
+        for (const el of elements) {
+          if (el instanceof Element) await translate(true, el);
+        }
+      },
+    };
+
+    if (!isManual && !(sourceLang && locale === sourceLang)) {
+      await translate();
+    }
+  }
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", init);
+  } else {
+    init();
+  }
 } // end singleton guard
