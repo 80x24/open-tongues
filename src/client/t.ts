@@ -26,7 +26,7 @@ function cfg() {
   slang = (s.getAttribute("data-lang") || "").split("-")[0];
   manual = s.hasAttribute("data-manual");
   pprompt = (s.getAttribute("data-preprompt") || "").trim().slice(0, 30);
-  const st = document.createElement("style"); st.textContent = ".t-ing{animation:t-p 1.5s ease-in-out infinite}@keyframes t-p{0%,100%{opacity:1}50%{opacity:.4}}";
+  const st = document.createElement("style"); st.textContent = ".t-ing{animation:t-p 1.2s ease-in-out infinite}@keyframes t-p{0%,100%{opacity:.3}50%{opacity:.7}}";
   document.head.appendChild(st);
   return true;
 }
@@ -143,8 +143,8 @@ async function translate(inc = false, root?: Element) {
   const { txt, atr } = collect(inc, root), all = [...new Set([...txt.keys(), ...atr.keys()])];
   if (!all.length) { busy = false; return; }
   for (const els of txt.values()) for (const el of els) el.classList.add("t-ing");
-  // Yield to browser so pulse animation renders before any fetch/apply
-  await new Promise(w => requestAnimationFrame(() => setTimeout(w, 0)));
+  // Double-rAF: guarantees browser has painted the pulse before we continue
+  await new Promise<void>(w => requestAnimationFrame(() => requestAnimationFrame(() => w())));
   const cached = lg(), hit = new Map<string, string>(), miss: string[] = [];
   for (const t of all) { const v = cached.get(t); if (v !== undefined) hit.set(t, v); else miss.push(t); }
   if (hit.size) {
