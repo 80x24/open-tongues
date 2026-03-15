@@ -62,7 +62,7 @@ function collect(inc: boolean, root?: Element) {
     const el = n as Element; let t: string;
     if (hd.has(el)) t = el.innerHTML.trim();
     else t = el.textContent!.trim();
-    if (t && t.length >= 2) { const a = txt.get(t) || []; a.push(el); txt.set(t, a); }
+    if (t && t.length >= 2) { const a = txt.get(t) || []; a.push(el); txt.set(t, a); el.classList.add("t-ing"); }
   }
   const atRoot = root || document.body;
   for (const el of atRoot.querySelectorAll("[placeholder],[title],[alt],[aria-label]")) {
@@ -142,16 +142,11 @@ async function translate(inc = false, root?: Element) {
   if (!inc && !root) { undo(); done = false; }
   const { txt, atr } = collect(inc, root), all = [...new Set([...txt.keys(), ...atr.keys()])];
   if (!all.length) { busy = false; return; }
-  for (const els of txt.values()) for (const el of els) el.classList.add("t-ing");
-  // Double-rAF: guarantees browser has painted the pulse before we continue
+  // .t-ing is already added during collect() — yield so browser paints pulse
   await new Promise<void>(w => requestAnimationFrame(() => requestAnimationFrame(() => w())));
   const cached = lg(), hit = new Map<string, string>(), miss: string[] = [];
   for (const t of all) { const v = cached.get(t); if (v !== undefined) hit.set(t, v); else miss.push(t); }
-  if (hit.size) {
-    // Ensure pulse is visible for at least 300ms even on cache hit
-    await new Promise(w => setTimeout(w, 300));
-    apply(txt, atr, hit);
-  }
+  if (hit.size) apply(txt, atr, hit);
   if (miss.length) {
     const desc = document.querySelector('meta[name="description"]')?.getAttribute("content") || "";
     const go = async (ch: string[]) => { for (let r = 0; r < 3; r++) { try {
