@@ -1,6 +1,6 @@
 {
   "name": "open-tongues",
-  "version": "0.1.20",
+  "version": "0.1.21",
   "description": "Zero-config website translation server. One script tag, any language.",
   "type": "module",
   "license": "MIT",
