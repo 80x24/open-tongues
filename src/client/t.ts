@@ -26,7 +26,7 @@ function cfg() {
   slang = (s.getAttribute("data-lang") || "").split("-")[0];
   manual = s.hasAttribute("data-manual");
   pprompt = (s.getAttribute("data-preprompt") || "").trim().slice(0, 30);
-  const st = document.createElement("style"); st.textContent = ".t-ing{animation:t-p 1.2s ease-in-out infinite}@keyframes t-p{0%,100%{opacity:.3}50%{opacity:.7}}";
+  const st = document.createElement("style"); st.textContent = ".t-ing{animation:t-p 1.5s ease-in-out infinite}@keyframes t-p{0%,100%{opacity:1}50%{opacity:.4}}";
   document.head.appendChild(st);
   return true;
 }
@@ -62,7 +62,7 @@ function collect(inc: boolean, root?: Element) {
     const el = n as Element; let t: string;
     if (hd.has(el)) t = el.innerHTML.trim();
     else t = el.textContent!.trim();
-    if (t && t.length >= 2) { const a = txt.get(t) || []; a.push(el); txt.set(t, a); el.classList.add("t-ing"); }
+    if (t && t.length >= 2) { const a = txt.get(t) || []; a.push(el); txt.set(t, a); }
   }
   const atRoot = root || document.body;
   for (const el of atRoot.querySelectorAll("[placeholder],[title],[alt],[aria-label]")) {
@@ -142,8 +142,7 @@ async function translate(inc = false, root?: Element) {
   if (!inc && !root) { undo(); done = false; }
   const { txt, atr } = collect(inc, root), all = [...new Set([...txt.keys(), ...atr.keys()])];
   if (!all.length) { busy = false; return; }
-  // .t-ing is already added during collect() — yield so browser paints pulse
-  await new Promise<void>(w => requestAnimationFrame(() => requestAnimationFrame(() => w())));
+  for (const els of txt.values()) for (const el of els) el.classList.add("t-ing");
   const cached = lg(), hit = new Map<string, string>(), miss: string[] = [];
   for (const t of all) { const v = cached.get(t); if (v !== undefined) hit.set(t, v); else miss.push(t); }
   if (hit.size) apply(txt, atr, hit);
@@ -190,9 +189,7 @@ async function init() {
   (window as any).t = { version: __VERSION__, get locale() { return loc; }, get sourceLocale() { return slang || iloc; },
     async setLocale(l: string) {
       if (!l || l.length > 35 || !LR.test(l)) return;
-      // If setting to source language, restore original
       if (slang && l === slang) { this.restore(); return; }
-      // Skip if already at requested locale and translation is done
       if (l === loc && done) return;
       loc = l; await translate();
     },
