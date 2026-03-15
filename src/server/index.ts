@@ -36,7 +36,8 @@ const bundleCache = new Map<string, { content: string; etag: string }>();
 app.get("/t.js", async (c) => {
   const isDev = process.env.NODE_ENV !== "production";
   if (isDev) {
-    const r = await Bun.build({ entrypoints: ["src/client/t.ts"], minify: false });
+    const { version } = await Bun.file("package.json").json();
+    const r = await Bun.build({ entrypoints: ["src/client/t.ts"], minify: false, define: { __VERSION__: JSON.stringify(version) } });
     if (!r.success) return c.text("// build error", 500);
     c.header("Content-Type", "application/javascript");
     c.header("Cache-Control", "no-cache, no-store");
@@ -151,6 +152,15 @@ app.post("/api/purge/:domain", async (c) => {
   const domain = c.req.param("domain");
   const result = await purgeDomainTranslations(domain);
   return c.json({ ok: true, domain, ...result });
+});
+
+// Test page (dev only)
+app.get("/test", async (c) => {
+  const file = Bun.file("test/test.html");
+  if (!(await file.exists())) return c.text("test/test.html not found", 404);
+  c.header("Content-Type", "text/html; charset=utf-8");
+  c.header("Cache-Control", "no-cache");
+  return c.body(await file.text());
 });
 
 // Health check

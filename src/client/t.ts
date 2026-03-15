@@ -234,6 +234,7 @@ if (!(window as any).__tongues) {
       selectAll("[data-th]").forEach((el) => {
         el.innerHTML = el.getAttribute("data-th")!;
         el.removeAttribute("data-th");
+        fadeIn(el);
       });
 
       // Restore original attributes
@@ -448,14 +449,47 @@ if (!(window as any).__tongues) {
         locale = initialLocale;
       },
 
-      async translateEl(target: string | Element | Element[]) {
+      async translateEl(target: string | Element | Element[], options?: { to?: string }) {
         const elements = typeof target === "string"
           ? [...document.querySelectorAll(target)]
           : Array.isArray(target) ? target : [target];
 
-        for (const el of elements) {
-          if (el instanceof Element) await translate(true, el);
+        // Restore to source language — undo without API call
+        if (options?.to && sourceLang && options.to === sourceLang) {
+          pauseObserver();
+          try {
+            for (const el of elements) {
+              if (!(el instanceof Element)) continue;
+              el.querySelectorAll("[data-th]").forEach((e) => {
+                e.innerHTML = e.getAttribute("data-th")!;
+                e.removeAttribute("data-th");
+                fadeIn(e);
+              });
+              for (const attr of TRANSLATABLE_ATTRS) {
+                const dataAttr = `data-ta-${attr}`;
+                el.querySelectorAll(`[${dataAttr}]`).forEach((e) => {
+                  e.setAttribute(attr, e.getAttribute(dataAttr)!);
+                  e.removeAttribute(dataAttr);
+                });
+              }
+            }
+          } finally {
+            resumeObserver();
+          }
+          return;
         }
+
+        const prevLocale = locale;
+        if (options?.to) {
+          if (!LANG_REGEX.test(options.to)) return;
+          locale = options.to;
+        }
+
+        for (const el of elements) {
+          if (el instanceof Element) await translate(false, el);
+        }
+
+        if (options?.to) locale = prevLocale;
       },
     };
 
