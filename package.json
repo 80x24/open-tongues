@@ -13,13 +13,19 @@
     "url": "https://github.com/80x24/open-tongues/issues"
   },
   "keywords": [
-    "translation",
     "i18n",
     "l10n",
-    "website",
+    "internationalization",
+    "localization",
+    "translation",
+    "website-translation",
+    "ai-translation",
+    "automatic-translation",
+    "multilingual",
     "claude",
     "ai",
-    "hono"
+    "hono",
+    "bun"
   ],
   "exports": {
     ".": {
