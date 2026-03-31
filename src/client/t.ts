@@ -107,7 +107,7 @@ if (!(window as any).__tongues) {
           }
 
           const text = el.textContent?.trim();
-          if (!text || text.length < 2) return NodeFilter.FILTER_SKIP;
+          if (!text) return NodeFilter.FILTER_SKIP;
 
           if (el.children.length > 0) {
             if (!hasInlineChildrenOnly(el)) return NodeFilter.FILTER_SKIP;
@@ -133,7 +133,7 @@ if (!(window as any).__tongues) {
         text = el.textContent!.trim();
       }
 
-      if (text && text.length >= 2) {
+      if (text) {
         const list = textMap.get(text) || [];
         list.push(el);
         textMap.set(text, list);
@@ -151,7 +151,7 @@ if (!(window as any).__tongues) {
       for (const attr of TRANSLATABLE_ATTRS) {
         const savedOriginal = el.getAttribute(`data-ta-${attr}`);
         const value = (savedOriginal || el.getAttribute(attr))?.trim();
-        if (!value || value.length < 2 || (incremental && savedOriginal)) continue;
+        if (!value || (incremental && savedOriginal)) continue;
 
         const list = attrMap.get(value) || [];
         list.push({ el, attr });
