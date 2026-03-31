@@ -32,9 +32,6 @@ if (!(window as any).__tongues) {
   let initialLocale = "";
   let sourceLang = "";
   let isManual = false;
-  // CJK 언어(한중일)는 1글자도 완전한 의미를 가지므로 최소 길이 1
-  const CJK_LANGS = new Set(["ko", "zh", "ja"]);
-  function minLen() { return CJK_LANGS.has(sourceLang) ? 1 : 2; }
   let preprompt = "";
   let isBusy = false;
   let isDone = false;
@@ -110,7 +107,7 @@ if (!(window as any).__tongues) {
           }
 
           const text = el.textContent?.trim();
-          if (!text || text.length < minLen()) return NodeFilter.FILTER_SKIP;
+          if (!text) return NodeFilter.FILTER_SKIP;
 
           if (el.children.length > 0) {
             if (!hasInlineChildrenOnly(el)) return NodeFilter.FILTER_SKIP;
@@ -136,7 +133,7 @@ if (!(window as any).__tongues) {
         text = el.textContent!.trim();
       }
 
-      if (text && text.length >= minLen()) {
+      if (text) {
         const list = textMap.get(text) || [];
         list.push(el);
         textMap.set(text, list);
@@ -154,7 +151,7 @@ if (!(window as any).__tongues) {
       for (const attr of TRANSLATABLE_ATTRS) {
         const savedOriginal = el.getAttribute(`data-ta-${attr}`);
         const value = (savedOriginal || el.getAttribute(attr))?.trim();
-        if (!value || value.length < minLen() || (incremental && savedOriginal)) continue;
+        if (!value || (incremental && savedOriginal)) continue;
 
         const list = attrMap.get(value) || [];
         list.push({ el, attr });
