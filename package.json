@@ -1,6 +1,6 @@
 {
   "name": "open-tongues",
-  "version": "0.1.23",
+  "version": "0.1.24",
   "description": "Zero-config website translation server. One script tag, any language.",
   "type": "module",
   "license": "MIT",
@@ -64,6 +64,8 @@
   },
   "devDependencies": {
     "@types/bun": "latest",
+    "acorn": "^8.18.0",
+    "esbuild": "^0.28.1",
     "linkedom": "^0.18.12",
     "tsup": "^8.4.0",
     "typescript": "^5.7.0"
