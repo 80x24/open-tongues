@@ -40,19 +40,27 @@ jobs:
           node-version: 22
           registry-url: https://registry.npmjs.org
 
-      - name: Bump patch version
+      # 버전 범프는 **로컬만**. 커밋·태그는 publish 성공 후에 한다 —
+      # 예전엔 범프+태그를 먼저 밀어서, publish 가 실패할 때마다 배포되지도 않은 버전이
+      # 하나씩 타버렸다(2026-08: repo 0.1.26 / npm 0.1.23, 미배포 태그 v0.1.25·v0.1.26 잔존).
+      - name: Bump patch version (local only)
         id: bump
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          npm version patch -m "chore: release v%s [skip ci]"
+          npm version patch --no-git-tag-version
           VERSION=$(node -p "require('./package.json').version")
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          git push --follow-tags
 
       - run: npm publish --provenance --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Commit & tag release
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git commit -am "chore: release v${{ steps.bump.outputs.version }} [skip ci]"
+          git tag "v${{ steps.bump.outputs.version }}"
+          git push --follow-tags
 
       - name: Create GitHub Release
         env:
