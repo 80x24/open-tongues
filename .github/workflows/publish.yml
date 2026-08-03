@@ -63,7 +63,8 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git commit -am "chore: release v${{ steps.bump.outputs.version }} [skip ci]"
-          git tag "v${{ steps.bump.outputs.version }}"
+          # -a 필수: --follow-tags 는 annotated 태그만 민다 (lightweight 는 조용히 스킵)
+          git tag -a "v${{ steps.bump.outputs.version }}" -m "v${{ steps.bump.outputs.version }}"
           git push --follow-tags
 
       - name: Create GitHub Release
