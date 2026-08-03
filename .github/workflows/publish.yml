@@ -37,8 +37,12 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
           registry-url: https://registry.npmjs.org
+
+      # Trusted Publishing(OIDC)은 npm >= 11.5.1 부터. node 24 가 npm 11 을 싣지만
+      # 패치 버전까지 보장하려고 명시적으로 올린다.
+      - run: npm install -g npm@latest
 
       # 버전 범프는 **로컬만**. 커밋·태그는 publish 성공 후에 한다 —
       # 예전엔 범프+태그를 먼저 밀어서, publish 가 실패할 때마다 배포되지도 않은 버전이
@@ -50,9 +54,9 @@ jobs:
           VERSION=$(node -p "require('./package.json').version")
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
+      # 토큰 없음 = Trusted Publishing(OIDC). NODE_AUTH_TOKEN 이 있으면 npm 이 OIDC 대신
+      # 그 토큰으로 인증해버려서 2FA/OTP 벽에 다시 걸린다 — 그래서 일부러 안 넘긴다.
       - run: npm publish --provenance --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Commit & tag release
         run: |
