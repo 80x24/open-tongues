@@ -71,23 +71,3 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: gh release create "v${{ steps.bump.outputs.version }}" --generate-notes
-
-      - name: Wait for npm registry propagation
-        run: sleep 10
-
-      - name: Generate GitHub App token
-        id: app-token
-        uses: actions/create-github-app-token@v1
-        with:
-          app-id: ${{ vars.GH_APP_ID }}
-          private-key: ${{ secrets.GH_APP_PRIVATE_KEY }}
-          repositories: tongues
-
-      - name: Notify tongues
-        env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
-        run: |
-          gh api repos/80x24/tongues/dispatches \
-            -f event_type=dep-update \
-            -f "client_payload[package]=open-tongues" \
-            -f "client_payload[version]=${{ steps.bump.outputs.version }}"
