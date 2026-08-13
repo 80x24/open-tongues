@@ -368,14 +368,14 @@ if (!(window as any).__tongues) {
     // Covers (a) failed/dropped batches (fetchBatch gives up silently) and (b) pulses
     // orphaned by re-renders: the host may swap an element's text after we applied it
     // (layout reflow), leaving a translated element with a stale .t-ing that incremental
-    // scans can never reach (data-th elements are rejected by the walker).
+    // scans can never reach (data-th elements are rejected by the walker). The data-th
+    // sweep runs document-wide even for rootless (observer) passes — a translation cycle
+    // can end on an incremental pass, freezing stale pulses forever otherwise.
     for (const elements of textMap.values()) {
       for (const el of elements) el.classList.remove("t-ing");
     }
-    if (root) {
-      for (const el of root.querySelectorAll(".t-ing")) {
-        if (el.hasAttribute("data-th")) el.classList.remove("t-ing");
-      }
+    for (const el of (root ?? document.body).querySelectorAll(".t-ing")) {
+      if (el.hasAttribute("data-th")) el.classList.remove("t-ing");
     }
 
     if (!root) isDone = true;
