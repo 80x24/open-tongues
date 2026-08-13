@@ -479,17 +479,32 @@ if (!(window as any).__tongues) {
           return;
         }
 
+        // 옵저버발 번역과 겹치면 translate() 가 busy 드랍(no-op) — 명시 호출은 "완료 보장"이
+        // 계약이라 busy 가 풀릴 때까지 기다렸다 실행한다. 드랍되면 호출부는 성공으로 착각한다
+        // (2026-08-13 menupie 번역 재조판 레이스: 측정 렌더가 원문인 채 측정돼 지면 넘침/반 빈 장).
+        // 데드라인 10s — 비정상 장기 busy 에 무한 대기하지 않는다(드랍과 같은 폴백).
+        const deadline = Date.now() + 10_000;
+        const idle = async () => {
+          while (isBusy && Date.now() < deadline) {
+            await new Promise((resolve) => setTimeout(resolve, 40));
+          }
+        };
+        await idle();
         const prevLocale = locale;
         if (options?.to) {
           if (!LANG_REGEX.test(options.to)) return;
           locale = options.to;
         }
 
-        for (const el of elements) {
-          if (el instanceof Element) await translate(false, el);
+        try {
+          for (const el of elements) {
+            if (!(el instanceof Element)) continue;
+            await idle();
+            await translate(false, el);
+          }
+        } finally {
+          if (options?.to) locale = prevLocale;
         }
-
-        if (options?.to) locale = prevLocale;
       },
     };
 
