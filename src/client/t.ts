@@ -291,13 +291,6 @@ if (!(window as any).__tongues) {
       return;
     }
 
-    // Start pulse animation on all collected elements
-    for (const elements of textMap.values()) {
-      for (const el of elements) {
-        el.classList.add("t-ing");
-      }
-    }
-
     // Check localStorage cache
     const cached = loadCache();
     const hits = new Map<string, string>();
@@ -313,6 +306,17 @@ if (!(window as any).__tongues) {
     }
 
     if (hits.size) applyTranslations(textMap, attrMap, hits);
+
+    // Pulse only elements still waiting on the API — cache hits apply instantly, and
+    // pulsing them makes every cached re-translate (e.g. re-render after relayout)
+    // flash the whole page like a fresh translation (menupie 2026-08-13).
+    if (misses.length) {
+      const missSet = new Set(misses);
+      for (const [text, elements] of textMap) {
+        if (!missSet.has(text)) continue;
+        for (const el of elements) el.classList.add("t-ing");
+      }
+    }
 
     // Fetch missing translations from API
     if (misses.length) {
