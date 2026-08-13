@@ -364,6 +364,20 @@ if (!(window as any).__tongues) {
       }
     }
 
+    // Pulse cleanup — the pass is over, nothing in it is "translating" anymore.
+    // Covers (a) failed/dropped batches (fetchBatch gives up silently) and (b) pulses
+    // orphaned by re-renders: the host may swap an element's text after we applied it
+    // (layout reflow), leaving a translated element with a stale .t-ing that incremental
+    // scans can never reach (data-th elements are rejected by the walker).
+    for (const elements of textMap.values()) {
+      for (const el of elements) el.classList.remove("t-ing");
+    }
+    if (root) {
+      for (const el of root.querySelectorAll(".t-ing")) {
+        if (el.hasAttribute("data-th")) el.classList.remove("t-ing");
+      }
+    }
+
     if (!root) isDone = true;
     isBusy = false;
 
